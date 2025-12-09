@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 
 # Same model of paper with fixed weights for test purposes
-class PaperNetwork(nn.Module):
+class SimpleNN(nn.Module):
     def __init__(self):
         super().__init__()
         self.fc1 = nn.Linear(2, 3, bias=False)
@@ -34,48 +34,44 @@ class PaperNetwork(nn.Module):
         return x
     
 
-# Feedforward Neural Network for test purposes
-class SimpleNN(nn.Module):
-    def __init__(
-        self,
-        input_size: int = 784,
-        hidden_sizes: list = [128, 64],
-        output_size: int = 10,
-    ):
-        super().__init__()
-        self.fc1 = nn.Linear(input_size, hidden_sizes[0])
-        self.fc2 = nn.Linear(hidden_sizes[0], hidden_sizes[1])
-        self.fc3 = nn.Linear(hidden_sizes[1], output_size)
-
-    def forward(self, x):
-        x = x.view(x.size(0), -1)  # flatten
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
-
 # Convolutional Neural Network for test purposes
 class SimpleCNN(nn.Module):
-    def __init__(self, in_channels=3, num_classes=10):
+    def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(in_channels, 8, kernel_size=3, padding=1)
-        self.relu1 = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(8, 16, kernel_size=3, padding=1)
-        self.relu2 = nn.ReLU(inplace=True)
-        self.pool1 = nn.MaxPool2d(2, 2)
-        self.pool2 = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(16 * 8 * 8, 64)
-        self.relu3 = nn.ReLU(inplace=True)
-        self.fc2 = nn.Linear(64, num_classes)
+
+        # Conv: 1 input channel → 2 feature maps
+        self.conv = nn.Conv2d(1, 2, kernel_size=2, bias=False)
+        self.relu = nn.ReLU(inplace=True)
+        
+        # Pooling über die 2×2 Conv-Ausgabe
+        self.pool = nn.AvgPool2d(kernel_size=2)
+
+        # FC: nimmt 2 Werte (je einen pro Feature Map)
+        self.fc = nn.Linear(2, 1, bias=False)
+
+        # ------- fixe, deterministische Gewichte -------
+        with torch.no_grad():
+            # conv.weight shape: (out_channels, in_channels, kH, kW)
+            self.conv.weight[:] = torch.tensor([
+                [
+                    [[1.0, -1.0],
+                     [0.0,  2.0]]      # Feature map 1
+                ],
+                [
+                    [[0.0,  1.0],
+                     [1.0, -1.0]]       # Feature map 2
+                ]
+            ])
+
+            # fc.weight shape = (1, 2)
+            self.fc.weight[:] = torch.tensor([[4.0, -2.0]])
 
     def forward(self, x):
-        x = self.relu1(self.conv1(x))   # now an actual module
-        x = self.pool1(x)
-        x = self.relu2(self.conv2(x))
-        x = self.pool2(x)
-        x = x.view(x.size(0), -1)
-        x = self.relu3(self.fc1(x))
-        x = self.fc2(x)
+        x = self.conv(x)        # (B, 2, 2, 2)
+        x = self.relu(x)        # ReLU
+        x = self.pool(x)        # (B, 2, 1, 1)
+        x = x.view(x.size(0), -1)  # Flatten → (B, 2)
+        x = self.fc(x)          # Final output
         return x
 
 
@@ -115,6 +111,4 @@ def get_model(name: str):
         return SimpleNN()
     if name == "simplecnn":
         return SimpleCNN()
-    if name == "papernetwork":
-        return PaperNetwork()
     raise ValueError(f"Unknown model: {name}")
