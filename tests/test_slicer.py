@@ -68,11 +68,9 @@ class TestSimpleNN:
 
     @pytest.fixture
     def zero_profiling(self, input_sample):
-        """Zero input for profiling → average activations = 0 → deltas = activations."""
         return torch.zeros_like(input_sample)
 
     def test_forward_pass(self, model, input_sample):
-        """Verify model output."""
         output = model(input_sample)
         # [1,2] → [5,2,2] → [9,-3] → [15,0]
         expected = torch.tensor([[15.0, 0.0]])
@@ -80,7 +78,6 @@ class TestSimpleNN:
 
 
     def test_forward_deltas_with_zero_profiling(self, model, input_sample, zero_profiling):
-        """With zero profiling, deltas should equal activations."""
         slicer = Slicer(
             model, profiling_samples=zero_profiling, input_sample=input_sample
         )
@@ -99,7 +96,6 @@ class TestSimpleNN:
             ), f"{layer} delta mismatch"
 
     def test_backward_output_initialization(self, model, input_sample, zero_profiling):
-        """Test that output layer gets correct initialization."""
         slicer = Slicer(
             model, profiling_samples=zero_profiling, input_sample=input_sample
         )
@@ -126,17 +122,14 @@ class TestSimpleCNN:
 
     @pytest.fixture
     def zero_profiling(self, input_sample):
-        """Zero input for profiling → average activations = 0 → deltas = activations."""
         return torch.zeros_like(input_sample)
 
     def test_forward_pass(self, model, input_sample):
-        """Verify model output."""
         output = model(input_sample)
         expected = torch.tensor([[10.0, 13.0]])
         assert torch.allclose(output, expected)
 
     def test_backward_input_contributions(self, model, input_sample, zero_profiling):
-        """Test full backward pass to input layer (hand-calculated)."""
         slicer = Slicer(
             model, profiling_samples=zero_profiling, input_sample=input_sample
         )
@@ -154,7 +147,6 @@ class TestSimpleCNN:
         ), f"Expected:\n{expected_input}\nGot:\n{contrib['input']}"
 
     def test_backward_layer_contributions(self, model, input_sample, zero_profiling):
-        """Test intermediate layer contributions."""
         slicer = Slicer(
             model, profiling_samples=zero_profiling, input_sample=input_sample
         )
@@ -174,7 +166,6 @@ class TestSimpleCNN:
         assert torch.equal(contrib["relu"], expected_relu)
 
     def test_synapse_counts(self, model, input_sample, zero_profiling):
-        """Verify correct number of synapses per layer."""
         slicer = Slicer(
             model, profiling_samples=zero_profiling, input_sample=input_sample
         )
@@ -188,7 +179,6 @@ class TestSimpleCNN:
         assert len(synapses["conv"]) == 4
 
     def test_synapse_values(self, model, input_sample, zero_profiling):
-        """Verify specific synapse contributions."""
         slicer = Slicer(
             model, profiling_samples=zero_profiling, input_sample=input_sample
         )

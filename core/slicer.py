@@ -4,7 +4,7 @@ import torch.nn as nn
 from core.analysis.profiler import Profiler
 from core.analysis.forward import ForwardAnalyzer
 from core.analysis.backward import BackwardAnalyzer
-from core.graph.graph import Graph
+from core.graph import Graph
 
 
 class Slicer:
@@ -64,6 +64,7 @@ class Slicer:
             target_index=target_index,
             theta=theta,
             channel_mode=channel_mode,
+            debug=True,
         )
 
         backward_analyzer.trace()
@@ -77,7 +78,6 @@ class Slicer:
     # Build graph model
     def _build_graph(self):
         self.graph = Graph(self.model)
-        self.graph.build()
 
     # Execute all phases
     def execute(self, target_index=0, theta=0.3, channel_mode=False):

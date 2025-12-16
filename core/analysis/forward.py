@@ -105,3 +105,4 @@ class ForwardAnalyzer:
         self.activations = {}
         self.neuron_deltas = {}
         self.layer_deltas = {}
+        self.pool_indices = {}

@@ -1,428 +1,583 @@
 # core/analysis/backward.py
 
+import time
+from typing import Dict, List, Any, Tuple
+
 import torch
+import torch.fx as fx
+import torch.nn as nn
+
+from core.graph import Graph
+from utils.logging import SlicerLogger
 
 
 class BackwardAnalyzer:
     def __init__(
-        self, graph, forward_result, target_index, theta=0.3, channel_mode=False
+        self,
+        graph: Graph,
+        forward_result: Dict[str, Any],
+        target_index: int,
+        theta: float = 0.3,
+        channel_mode: bool = False,
+        debug: bool = False,
     ):
         self.graph = graph
-        self.channel_mode = channel_mode
         self.theta = theta
+        self.channel_mode = channel_mode
+        self.target_index = target_index
 
         self.activations = forward_result["activations"]
         self.neuron_deltas = forward_result["neuron_deltas"]
         self.layer_deltas = forward_result["layer_deltas"]
         self.pool_indices = forward_result.get("pool_indices", {})
 
-        self.output_layer = list(self.graph.nodes.keys())[-1]
-        self.target_index = target_index
+        # Results
+        self.neuron_contributions: Dict[str, torch.Tensor] = {}
+        self.synapse_contributions: Dict[str, List[Dict[str, Any]]] = {}
 
-        # results
-        self.neuron_contributions = {}
-        self.synapse_contributions = {}
+        # Timing
+        self.backward_time_sec: float = 0.0
 
-    # Main tracing function (entry point)
-    def trace(self):
-        self._init_contributions()
+        # Logger
+        self.logger = SlicerLogger(enabled=debug)
 
-        layer_order = list(self.graph.nodes.keys())[::-1]
+    def _key(self, node: fx.Node) -> str:
+        """Stable string key for activations / deltas / contributions."""
+        if node.op == "call_module":
+            return str(node.target)
+        if node.op == "placeholder":
+            return "input"
+        return node.name
 
-        for layer_name in layer_order:
-            node = self.graph.nodes[layer_name]
-            CONTRIB_n = self.neuron_contributions[layer_name]
-            delta_n = self.neuron_deltas[layer_name]
+    def _get_delta(self, node: fx.Node) -> torch.Tensor:
+        if node.op == "placeholder":
+            return self.neuron_deltas["input"]
 
-            # No parents → input layer reached
-            if not node.parents:
-                continue
+        if node.op == "call_module":
+            return self.neuron_deltas[str(node.target)]
 
-            for parent in node.parents:
-                p_name = parent.name
-                delta_i = self.neuron_deltas[p_name]
+        if node.op in ("call_function", "call_method"):
+            parents = self.graph.get_parent_nodes(node)
+            if parents:
+                return self._get_delta(parents[0])
 
-                syn, contrib_parent = self._backward_layer(
-                    node, CONTRIB_n, delta_n, delta_i
+        raise KeyError(f"No delta for node {node.name}")
+
+    def _get_activation(self, node: fx.Node) -> torch.Tensor:
+        if node.op == "call_module":
+            return self.activations[str(node.target)]
+        if node.op == "placeholder":
+            return self.neuron_deltas["input"]
+        raise RuntimeError(f"No activation for node {node.name}")
+
+    def _get_last_compute_node(self) -> fx.Node:
+        for node in reversed(list(self.graph.get_nodes())):
+            if node.op not in ("output", "get_attr"):
+                return node
+        raise RuntimeError("No compute node found")
+
+
+    def _init_contributions(self):
+        for node in self.graph.get_nodes():
+            if node.op in ("call_module", "placeholder"):
+                key = self._key(node)
+                if key in self.neuron_deltas:
+                    self.neuron_contributions[key] = torch.zeros_like(
+                        self.neuron_deltas[key]
+                    )
+
+            elif node.op == "call_function" and self.graph.get_type(node) == "add":
+                parent = self.graph.get_parent_nodes(node)[0]
+                parent_key = self._key(parent)
+                self.neuron_contributions[node.name] = torch.zeros_like(
+                    self.neuron_deltas[parent_key]
                 )
 
-                # store synapses sparse
+        last_node = self._get_last_compute_node()
+        last_key = self._key(last_node)
+        contrib = self.neuron_contributions[last_key]
+
+        if contrib.dim() == 2:
+            contrib[0, self.target_index] = 1.0
+        elif contrib.dim() == 4:
+            contrib[0, self.target_index, :, :] = 1.0
+
+    def trace(self):
+        """Main backward tracing function."""
+
+        self.logger.model_summary(
+            self.graph, self.neuron_deltas, self.target_index, self.theta
+        )
+        self.logger.layer_table(self.graph, self.neuron_deltas, self._key)
+
+        # Start timer
+        start = time.perf_counter()
+
+        self._init_contributions()
+        
+        # Collect trace steps for later logging
+        trace_steps: List[Tuple[str, str, int, int, List[str]]] = []
+
+        for node in reversed(list(self.graph.get_nodes())):
+            if node.op in ("output", "get_attr"):
+                continue
+
+            node_key = self._key(node)
+            node_type = self.graph.get_type(node)
+
+            if node_key not in self.neuron_contributions:
+                continue
+
+            CONTRIB_n = self.neuron_contributions[node_key]
+            contrib_in = (CONTRIB_n != 0).sum().item()
+
+            if contrib_in == 0:
+                continue
+
+            delta_n = self._get_delta(node)
+
+            parents = self.graph.get_compute_parents(node)
+            expanded_parents: List[fx.Node] = []
+
+            for p in parents:
+                if self.graph.get_type(p) == "add":
+                    for ap in self.graph.get_parent_nodes(p):
+                        expanded_parents.append(self.graph.skip_passthrough(ap))
+                    add_key = self._key(p)
+                    if add_key in self.neuron_contributions:
+                        self.neuron_contributions[add_key] += CONTRIB_n
+                else:
+                    expanded_parents.append(p)
+
+            contrib_out_total = 0
+            parent_names: List[str] = []
+
+            for parent in expanded_parents:
+                parent_key = self._key(parent)
+                if parent_key not in self.neuron_deltas:
+                    continue
+
+                parent_names.append(parent_key)
+                delta_i = self._get_delta(parent)
+
+                syn, contrib_parent = self._backward_dispatch(
+                    node, parent, CONTRIB_n, delta_n, delta_i
+                )
+
                 if syn:
-                    self.synapse_contributions.setdefault(layer_name, []).extend(syn)
+                    self.synapse_contributions.setdefault(node_key, []).extend(syn)
 
-                # accumulate neuron contributions
-                self.neuron_contributions[p_name] += contrib_parent
+                self.neuron_contributions.setdefault(
+                    parent_key, torch.zeros_like(delta_i)
+                )
+                self.neuron_contributions[parent_key] += contrib_parent
+                contrib_out_total += (contrib_parent != 0).sum().item()
 
-    # Initialize contributions to zero, set target neurons to 1
-    def _init_contributions(self):
-        for layer_name, delta in self.neuron_deltas.items():
-            contrib = torch.zeros_like(delta)
+            trace_steps.append((node_key, node_type, int(contrib_in), contrib_out_total, parent_names))
 
-            # OUTPUT LAYER gets 1 at target neuron
-            if layer_name == self.output_layer:
-                # Case: linear output [B, out]
-                if contrib.dim() == 2:
-                    contrib[0, self.target_index] = 1.0
+        # Stop Timer
+        self.backward_time_sec = time.perf_counter() - start
+            
+        self.logger.results(
+            self.graph,
+            self.neuron_contributions,
+            self.synapse_contributions,
+            self.backward_time_sec,
+            self._key,
+            self.neuron_deltas,
+        )
 
-                # Case: conv feature output [B, C, H, W]
-                elif contrib.dim() == 4:
-                    contrib[0, self.target_index, :, :] = 1.0
+    def _backward_dispatch(
+        self,
+        node: fx.Node,
+        parent: fx.Node,
+        CONTRIB_n: torch.Tensor,
+        delta_n: torch.Tensor,
+        delta_i: torch.Tensor,
+    ) -> Tuple[List[Dict[str, Any]], torch.Tensor]:
 
-            self.neuron_contributions[layer_name] = contrib
+        node_type = self.graph.get_type(node)
 
-    # Theta filtering for linear and conv layers
-    def _theta_filter(self, candidates, output_value):
+        if node_type == "linear":
+            module = self.graph.get_module(node)
+            assert isinstance(module, nn.Linear)
+            return self._backward_linear(module, CONTRIB_n, delta_n, delta_i)
+
+        if node_type == "conv2d":
+            module = self.graph.get_module(node)
+            assert isinstance(module, nn.Conv2d)
+            return self._backward_conv2d(module, CONTRIB_n, delta_n, delta_i)
+
+        if node_type == "batchnorm2d":
+            return self._backward_batchnorm2d(CONTRIB_n, delta_n, delta_i)
+
+        if node_type == "relu":
+            return self._backward_relu(
+                self._get_activation(node), CONTRIB_n, delta_n, delta_i
+            )
+
+        if node_type == "maxpool2d":
+            return self._backward_maxpool2d(
+                self.pool_indices[self._key(node)], CONTRIB_n, delta_n, delta_i
+            )
+
+        if node_type == "avgpool2d":
+            module = self.graph.get_module(node)
+            assert isinstance(module, nn.AvgPool2d)
+            return self._backward_avgpool2d(module, CONTRIB_n, delta_n, delta_i)
+
+        if node_type == "adaptiveavgpool2d":
+            return self._backward_adaptiveavgpool2d(CONTRIB_n, delta_n, delta_i)
+
+        if node_type == "add":
+            return self._backward_add(CONTRIB_n, delta_n, delta_i)
+
+        if node_type in ("flatten", "method_view", "method_flatten"):
+            return self._backward_flatten(CONTRIB_n, delta_i)
+
+        return [], CONTRIB_n.clone()
+
+    def _theta_filter(
+        self,
+        candidates: List[Dict[str, Any]],
+        output_value: float,
+    ) -> List[Dict[str, Any]]:
         """
+        Filter synapse candidates by theta threshold.
+
         Sort by |w_i * Δx_i| ascending, remove smallest
         while |Σ removed| / |y| < θ
         """
-        if not candidates:
-            return []
+        if not candidates or abs(output_value) < 1e-9:
+            return candidates
 
-        # Sort by magnitude (ascending)
-        sorted_cands = sorted(candidates, key=lambda c: abs(c["w_dx"]))
+        candidates = sorted(candidates, key=lambda c: abs(c["w_dx"]))
+        removed = 0.0
+        cut_idx = 0
 
-        # Avoid division by zero
-        if abs(output_value) < 1e-9:
-            return sorted_cands
-
-        # Find cutoff: remove smallest while influence < θ
-        removed_sum = 0.0
-        cutoff_idx = 0
-
-        for i, c in enumerate(sorted_cands):
-            w_dx = c["w_dx"]
-            # Check: can we still remove this?
-            if abs(removed_sum + w_dx) / abs(output_value) < self.theta:
-                removed_sum += w_dx
-                cutoff_idx = i + 1
+        for i, c in enumerate(candidates):
+            if abs(removed + c["w_dx"]) / abs(output_value) < self.theta:
+                removed += c["w_dx"]
+                cut_idx = i + 1
             else:
                 break
 
-        # Keep everything from cutoff_idx onwards
-        return sorted_cands[cutoff_idx:]
+        return candidates[cut_idx:]
 
-    # Dispatch to layer-specific backward methods
-    def _backward_layer(self, node, CONTRIB_n, delta_n, delta_i):
-        if node.type == "linear":
-            return self._backward_linear(node, CONTRIB_n, delta_n, delta_i)
+    def _backward_linear(
+        self,
+        module: nn.Linear,
+        CONTRIB_n: torch.Tensor,
+        delta_n: torch.Tensor,
+        delta_i: torch.Tensor,
+    ):
+        W = module.weight.detach()
+        out_c = CONTRIB_n.squeeze()
+        out_d = delta_n.squeeze()
 
-        elif node.type == "conv2d":
-            return self._backward_conv2d(node, CONTRIB_n, delta_n, delta_i)
-
-        elif node.type == "avgpool2d":
-            return self._backward_avgpool2d(node, CONTRIB_n, delta_n, delta_i)
-
-        elif node.type == "maxpool2d":
-            return self._backward_maxpool2d(node, CONTRIB_n, delta_n, delta_i)
-
-        elif node.type == "relu":
-            return self._backward_relu(node, CONTRIB_n, delta_n, delta_i)
-
-        elif node.type == "batchnorm2d":
-            return self._backward_batchnorm2d(node, CONTRIB_n, delta_n, delta_i)
-
-        else:
-            raise NotImplementedError(node.type)
-
-    # Linear backward operation
-    def _backward_linear(self, node, CONTRIB_n, delta_n, delta_i):
-        W = node.weight  # [out, in]
-
-        # Output Site
-        out_contrib = CONTRIB_n.squeeze()  # [out]
-        out_delta = delta_n.squeeze()  # [out]
-
-        # Input Site
-        orig_shape = delta_i.shape  # Remember for reshape at the end
-
-        # If delta_i has more than 2 dims, flatten it
-        if delta_i.dim() > 2:
-            in_delta = delta_i.view(-1)  # [in] flat
-        else:
-            in_delta = delta_i.squeeze()  # [in]
-
-        parent_contrib_flat = torch.zeros_like(in_delta)
-        syn_list = []
+        flat_in = delta_i.reshape(-1)
+        parent = torch.zeros_like(flat_in)
+        syn = []
 
         for j in range(W.shape[0]):
-            if out_contrib[j] == 0:
+            if out_c[j] == 0:
                 continue
 
-            dy = out_delta[j]
-
-            candidates = []
+            dy = out_d[j]
+            cands = []
 
             for i in range(W.shape[1]):
-                w_val = W[j, i]
-                dx = in_delta[i]
-
-                local = out_contrib[j] * dy * w_val * dx
-                w_dx = w_val * dx
-
-                candidates.append(
+                w, dx = W[j, i], flat_in[i]
+                cands.append(
                     {
                         "i": i,
-                        "local": local,
-                        "w_dx": float(w_dx) if torch.is_tensor(w_dx) else w_dx,
+                        "local": out_c[j] * dy * w * dx,
+                        "w_dx": float(w * dx),
                     }
                 )
 
-            # Apply theta filtering
-            filtered = self._theta_filter(candidates, float(dy))
+            for c in self._theta_filter(cands, float(dy)):
+                s = torch.sign(c["local"])
+                parent[c["i"]] += s
+                syn.append({"i": c["i"], "j": j, "sign": float(s)})
 
-            # Store contributions for neurons and synapses
-            for cand in filtered:
-                s = torch.sign(cand["local"])
-                idx = cand["i"]
+        return syn, parent.reshape(delta_i.shape)
 
-                parent_contrib_flat[idx] += s
-                syn_list.append(
-                    {
-                        "i": int(idx),
-                        "j": int(j),
-                        "sign": float(s),
-                    }
-                )
+    def _backward_conv2d(
+        self,
+        module: nn.Conv2d,
+        CONTRIB_n: torch.Tensor,
+        delta_n: torch.Tensor,
+        delta_i: torch.Tensor,
+    ):
+        W = module.weight.detach()
 
-        # Back to original shape for parent contributions
-        parent_contrib = parent_contrib_flat.view(orig_shape)
+        sH, sW = (
+            module.stride
+            if isinstance(module.stride, tuple)
+            else (module.stride, module.stride)
+        )
+        pH, pW = (
+            module.padding
+            if isinstance(module.padding, tuple)
+            else (module.padding, module.padding)
+        )
 
-        return syn_list, parent_contrib
-
-    # Conv2d backward operation
-    def _backward_conv2d(self, node, CONTRIB_n, delta_n, delta_i):
-        W = node.weight  # [C_out, C_in, kH, kW]
-        stride_h, stride_w = node.stride
-        pad_h, pad_w = node.padding
+        groups = module.groups
 
         _, C_out, H_out, W_out = CONTRIB_n.shape
-        _, C_in, H_in, W_in = delta_i.shape
+        _, _, H_in, W_in = delta_i.shape
         kH, kW = W.shape[2:]
 
+        Cin_g = W.shape[1]
+        Cout_g = C_out // groups
+
         input_contrib = torch.zeros_like(delta_i)
-        syn_list = []
+        syn = []
 
         for co in range(C_out):
+            g = co // Cout_g
+            ci_start = g * Cin_g
+
             for ho in range(H_out):
                 for wo in range(W_out):
-
-                    c_out = CONTRIB_n[0, co, ho, wo]
-                    if c_out == 0:
+                    if CONTRIB_n[0, co, ho, wo] == 0:
                         continue
 
                     dy = delta_n[0, co, ho, wo]
+                    hs = ho * sH - pH
+                    ws = wo * sW - pW
 
-                    h_start = ho * stride_h - pad_h
-                    w_start = wo * stride_w - pad_w
+                    cands = []
 
-                    # Collect all contributions for this output neuron
-                    candidates = []
-
-                    for ci in range(C_in):
+                    for ci in range(Cin_g):
                         for kh in range(kH):
                             for kw in range(kW):
+                                hi, wi = hs + kh, ws + kw
+                                if 0 <= hi < H_in and 0 <= wi < W_in:
+                                    dx = delta_i[0, ci_start + ci, hi, wi]
+                                    w = W[co, ci, kh, kw]
+                                    cands.append(
+                                        {
+                                            "ci": ci_start + ci,
+                                            "h": hi,
+                                            "w": wi,
+                                            "local": CONTRIB_n[0, co, ho, wo]
+                                            * dy
+                                            * w
+                                            * dx,
+                                            "w_dx": float(w * dx),
+                                        }
+                                    )
 
-                                h_in = h_start + kh
-                                w_in = w_start + kw
-
-                                if h_in < 0 or h_in >= H_in or w_in < 0 or w_in >= W_in:
-                                    continue
-
-                                dx = delta_i[0, ci, h_in, w_in]
-                                w_val = W[co, ci, kh, kw]
-
-                                local = c_out * dy * w_val * dx
-                                w_dx = w_val * dx
-
-                                candidates.append(
-                                    {
-                                        "ci": ci,
-                                        "h_in": h_in,
-                                        "w_in": w_in,
-                                        "local": local,
-                                        "w_dx": (
-                                            float(w_dx)
-                                            if torch.is_tensor(w_dx)
-                                            else w_dx
-                                        ),
-                                    }
-                                )
-
-                    # Apply theta filtering
-                    filtered = self._theta_filter(candidates, float(dy))
-
-                    # Store contributions
-                    for cand in filtered:
-                        s = torch.sign(cand["local"])
-
-                        ci = cand["ci"]
-                        h_in = cand["h_in"]
-                        w_in = cand["w_in"]
-
-                        # flat indices
-                        in_idx = ci * H_in * W_in + h_in * W_in + w_in
-                        out_idx = co * H_out * W_out + ho * W_out + wo
-
-                        syn_list.append(
-                            {"i": int(in_idx), "j": int(out_idx), "sign": float(s)}
+                    for c in self._theta_filter(cands, float(dy)):
+                        s = torch.sign(c["local"])
+                        input_contrib[0, c["ci"], c["h"], c["w"]] += s
+                        syn.append(
+                            {
+                                "i": int(
+                                    c["ci"] * H_in * W_in + c["h"] * W_in + c["w"]
+                                ),
+                                "j": int(co * H_out * W_out + ho * W_out + wo),
+                                "sign": float(s),
+                            }
                         )
-                        input_contrib[0, ci, h_in, w_in] += s
 
-        return syn_list, input_contrib
+        return syn, input_contrib
 
-    # AvgPool2d backward operation
-    def _backward_avgpool2d(self, node, CONTRIB_n, delta_n, delta_i):
-        kH, kW = node.kernel_size
-        sH, sW = node.stride
-        pH, pW = node.padding
+    def _backward_relu(
+        self,
+        activation: torch.Tensor,
+        CONTRIB_n: torch.Tensor,
+        delta_n: torch.Tensor,
+        delta_i: torch.Tensor,
+    ) -> Tuple[List[Dict[str, Any]], torch.Tensor]:
+        """ReLU backward pass - 1:1 synapse per neuron."""
+        mask = (activation > 0).float()
+        local = CONTRIB_n * delta_n * delta_i * mask
+        contrib = torch.sign(local)
 
-        B, C, H_out, W_out = CONTRIB_n.shape
+        # 1:1 Synapsen für aktive Neuronen
+        flat = contrib.flatten()
+        syn = [
+            {"i": i, "j": i, "sign": float(flat[i].item())}
+            for i in range(flat.numel())
+            if flat[i] != 0
+        ]
+
+        return syn, contrib
+
+    def _backward_maxpool2d(self, indices, CONTRIB_n, delta_n, delta_i):
+        _, C, H_out, W_out = CONTRIB_n.shape
         _, _, H_in, W_in = delta_i.shape
 
-        syn_list = []
-        input_contrib = torch.zeros_like(delta_i)
-
-        scale = 1.0 / (kH * kW)
+        out = torch.zeros_like(delta_i)
+        syn = []
 
         for c in range(C):
             for ho in range(H_out):
                 for wo in range(W_out):
-
-                    c_out = CONTRIB_n[0, c, ho, wo]
-                    if c_out == 0:
+                    if CONTRIB_n[0, c, ho, wo] == 0:
                         continue
 
-                    dy = delta_n[0, c, ho, wo]
+                    flat = int(indices[0, c, ho, wo].item())
+                    hi = flat // W_in
+                    wi = flat % W_in
 
-                    h_start = ho * sH - pH
-                    w_start = wo * sW - pW
+                    local = (
+                        CONTRIB_n[0, c, ho, wo]
+                        * delta_n[0, c, ho, wo]
+                        * delta_i[0, c, hi, wi]
+                    )
+                    s = torch.sign(local)
+                    out[0, c, hi, wi] += s
 
-                    # Collect all contributions for this output neuron
-                    candidates = []
+                    # FEHLTE!
+                    syn.append(
+                        {
+                            "i": int(c * H_in * W_in + hi * W_in + wi),
+                            "j": int(c * H_out * W_out + ho * W_out + wo),
+                            "sign": float(s.item()),
+                        }
+                    )
+
+        return syn, out
+
+    def _backward_avgpool2d(
+        self,
+        module: nn.AvgPool2d,
+        CONTRIB_n: torch.Tensor,
+        delta_n: torch.Tensor,
+        delta_i: torch.Tensor,
+    ):
+        kH, kW = (
+            module.kernel_size
+            if isinstance(module.kernel_size, tuple)
+            else (module.kernel_size, module.kernel_size)
+        )
+        sH, sW = (
+            module.stride
+            if isinstance(module.stride, tuple)
+            else (module.stride, module.stride)
+        )
+        pH, pW = (
+            module.padding
+            if isinstance(module.padding, tuple)
+            else (module.padding, module.padding)
+        )
+
+        _, C, H_out, W_out = CONTRIB_n.shape
+        _, _, H_in, W_in = delta_i.shape
+
+        scale = 1.0 / (kH * kW)
+        out = torch.zeros_like(delta_i)
+        syn = []
+
+        for c in range(C):
+            for ho in range(H_out):
+                for wo in range(W_out):
+                    if CONTRIB_n[0, c, ho, wo] == 0:
+                        continue
+
+                    hs = ho * sH - pH
+                    ws = wo * sW - pW
 
                     for kh in range(kH):
                         for kw in range(kW):
+                            hi = hs + kh
+                            wi = ws + kw
+                            if 0 <= hi < H_in and 0 <= wi < W_in:
+                                local = (
+                                    CONTRIB_n[0, c, ho, wo]
+                                    * delta_n[0, c, ho, wo]
+                                    * delta_i[0, c, hi, wi]
+                                    * scale
+                                )
+                                s = torch.sign(local)
+                                out[0, c, hi, wi] += s
 
-                            h_in = h_start + kh
-                            w_in = w_start + kw
+                                # FEHLTE!
+                                if s != 0:
+                                    syn.append(
+                                        {
+                                            "i": int(c * H_in * W_in + hi * W_in + wi),
+                                            "j": int(
+                                                c * H_out * W_out + ho * W_out + wo
+                                            ),
+                                            "sign": float(s.item()),
+                                        }
+                                    )
 
-                            if h_in < 0 or h_in >= H_in or w_in < 0 or w_in >= W_in:
-                                continue
+        return syn, out
 
-                            dx = delta_i[0, c, h_in, w_in]
-                            local = c_out * dy * dx * scale
-                            w_dx = dx * scale  # "weight" is uniform 1/k²
-
-                            candidates.append(
-                                {
-                                    "h_in": h_in,
-                                    "w_in": w_in,
-                                    "local": local,
-                                    "w_dx": (
-                                        float(w_dx) if torch.is_tensor(w_dx) else w_dx
-                                    ),
-                                }
-                            )
-
-                    # 2. Theta filtering
-                    filtered = self._theta_filter(candidates, float(dy))
-
-                    # 3. Store contributions
-                    for cand in filtered:
-                        s = torch.sign(cand["local"])
-
-                        h_in = cand["h_in"]
-                        w_in = cand["w_in"]
-
-                        in_idx = c * H_in * W_in + h_in * W_in + w_in
-                        out_idx = c * H_out * W_out + ho * W_out + wo
-
-                        syn_list.append(
-                            {"i": int(in_idx), "j": int(out_idx), "sign": float(s)}
-                        )
-                        input_contrib[0, c, h_in, w_in] += s
-
-        return syn_list, input_contrib
-
-    # MaxPool2d backward operation
-    def _backward_maxpool2d(self, node, CONTRIB_n, delta_n, delta_i):
-        indices = self.pool_indices[node.name]  # GLOBAL flat indices
-
-        B, C, H_out, W_out = CONTRIB_n.shape
+    def _backward_adaptiveavgpool2d(self, CONTRIB_n, delta_n, delta_i):
+        _, C, H_out, W_out = CONTRIB_n.shape
         _, _, H_in, W_in = delta_i.shape
 
-        input_contrib = torch.zeros_like(delta_i)
-        syn_list = []
+        out = torch.zeros_like(delta_i)
+        syn = []
 
         for c in range(C):
             for ho in range(H_out):
                 for wo in range(W_out):
-
-                    c_out = CONTRIB_n[0, c, ho, wo]
-                    if c_out == 0:
+                    if CONTRIB_n[0, c, ho, wo] == 0:
                         continue
 
-                    dy = delta_n[0, c, ho, wo]
+                    hs = ho * H_in // H_out
+                    he = (ho + 1) * H_in // H_out
+                    ws = wo * W_in // W_out
+                    we = (wo + 1) * W_in // W_out
+                    scale = 1.0 / ((he - hs) * (we - ws))
 
-                    # Global flat index into input tensor
-                    flat = int(indices[0, c, ho, wo].item())
+                    for hi in range(hs, he):
+                        for wi in range(ws, we):
+                            local = (
+                                CONTRIB_n[0, c, ho, wo]
+                                * delta_n[0, c, ho, wo]
+                                * delta_i[0, c, hi, wi]
+                                * scale
+                            )
+                            s = torch.sign(local)
+                            out[0, c, hi, wi] += s
 
-                    # Convert to (h_in, w_in)
-                    h_in = flat // W_in
-                    w_in = flat % W_in
+                            if s != 0:
+                                syn.append(
+                                    {
+                                        "i": int(c * H_in * W_in + hi * W_in + wi),
+                                        "j": int(c * H_out * W_out + ho * W_out + wo),
+                                        "sign": float(s.item()),
+                                    }
+                                )
 
-                    dx = delta_i[0, c, h_in, w_in]
+        return syn, out
 
-                    # Local contribution (paper formula)
-                    local = c_out * dy * dx
-
-                    # No theta filter for maxpool (only 1 input contributes)
-                    s = torch.sign(local)
-
-                    # Synapse flat indices
-                    in_idx = c * H_in * W_in + flat
-                    out_idx = c * H_out * W_out + ho * W_out + wo
-
-                    syn_list.append(
-                        {"i": in_idx, "j": out_idx, "sign": float(s.item())}
-                    )
-
-                    input_contrib[0, c, h_in, w_in] += s
-
-        return syn_list, input_contrib
-
-    # Relu backward operation
-    def _backward_relu(self, node, CONTRIB_n, delta_n, delta_i):
-        activation = self.activations[node.name]
-        mask = (activation > 0).float()
-
-        # Local contribution: CONTRIB_n × Δy × w × Δx
-        local = CONTRIB_n * delta_n * delta_i * mask
-        input_contrib = torch.sign(local)
-        syn_list = []
-
-        nonzero = (input_contrib != 0).nonzero(as_tuple=False)
-
-        for idx in nonzero:
-            if input_contrib.dim() == 4:
-                _, c, h, w = idx.tolist()
-                C, H, W = input_contrib.shape[1:]
-                flat_idx = c * H * W + h * W + w
-            else:
-                flat_idx = idx[-1].item()
-
-            syn_list.append(
-                {
-                    "i": int(flat_idx),
-                    "j": int(flat_idx),
-                    "sign": float(input_contrib[tuple(idx)].item()),
-                }
-            )
-
-        return syn_list, input_contrib
-
-    # BatchNorm2d backward operation
-    def _backward_batchnorm2d(self, node, CONTRIB_n, delta_n, delta_i):
+    def _backward_batchnorm2d(self, CONTRIB_n, delta_n, delta_i):
         local = CONTRIB_n * delta_n * delta_i
-        return [], torch.sign(local)
+        contrib = torch.sign(local)
+
+        # 1:1 Synapsen
+        flat = contrib.flatten()
+        syn = [
+            {"i": i, "j": i, "sign": float(flat[i].item())}
+            for i in range(flat.numel())
+            if flat[i] != 0
+        ]
+
+        return syn, contrib
+
+    def _backward_add(self, CONTRIB_n, delta_n, delta_i):
+        local = CONTRIB_n * delta_n * delta_i
+        contrib = torch.sign(local)
+
+        # 1:1 Synapsen
+        flat = contrib.flatten()
+        syn = [
+            {"i": i, "j": i, "sign": float(flat[i].item())}
+            for i in range(flat.numel())
+            if flat[i] != 0
+        ]
+
+        return syn, contrib
+
+    def _backward_flatten(self, CONTRIB_n, delta_i):
+        return [], CONTRIB_n.reshape(delta_i.shape)

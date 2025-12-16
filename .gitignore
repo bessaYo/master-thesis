@@ -7,7 +7,11 @@ venv/
 # Temporary result files
 results/
 
+# Ignore Mnist and CIFAR datasets
+train/data/
 
+# Python packaging
+*.egg-info/
 
 
 
