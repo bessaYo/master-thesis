@@ -7,8 +7,7 @@ from core.slicer import Slicer
 # Load sample Model
 model = SimpleNN()
 model.eval()
-
-# Same input as in the paper
+ 
 x = torch.tensor([[1.0, 2.0]])  # shape (1, 2)
 
 y = model(x)

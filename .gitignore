@@ -8,7 +8,7 @@ venv/
 results/
 
 # Ignore Mnist and CIFAR datasets
-train/data/
+data/
 
 # Python packaging
 *.egg-info/

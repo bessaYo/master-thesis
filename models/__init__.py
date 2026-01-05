@@ -33,6 +33,9 @@ def get_model(name, pretrained=False):
 
     if pretrained:
         checkpoint = torch.load(path, map_location="cpu")
-        model.load_state_dict(checkpoint["state_dict"])
+        if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+            model.load_state_dict(checkpoint["state_dict"])
+        else:
+            model.load_state_dict(checkpoint)
 
     return model

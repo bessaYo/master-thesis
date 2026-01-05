@@ -10,6 +10,7 @@ class Profiler:
     def __init__(self, model: nn.Module):
         self.model = model
         self.hooks = []
+        self.layer_types = {}
 
         # Input stats
         self.input_sum = 0.0
@@ -21,6 +22,7 @@ class Profiler:
 
         # Mean values for each level
         self.neuron_means = {}
+        self.channel_means = {}
         self.layer_means = {}
         self.block_means = {}
 
@@ -31,7 +33,8 @@ class Profiler:
             # Skip layer with children (like sequentials or blocks) for now
             if len(list(layer.children())) > 0:
                 continue
-
+            
+            self.layer_types[name] = layer
             hook = layer.register_forward_hook(self._hook_fn(name))
             self.hooks.append(hook)
 
@@ -62,15 +65,14 @@ class Profiler:
         self.hooks.clear()
 
     # Compute mean over all inputs
-    def _compute_input_mean(self, samples: torch.Tensor):
-        for sample in samples:
-            sample = ensure_tensor_batch(sample)
+    def _compute_input_mean(self, samples: torch.Tensor, batch_size=128):
+         for i in range(0, len(samples), batch_size):
+            batch = samples[i:i+batch_size]
+            self.input_sum += batch.sum(dim=0)
+            self.input_count += batch.size(0)
 
-            self.input_sum += sample.sum(dim=0)
-            self.input_count += sample.size(0)
-
-        # Final mean
-        self.neuron_means["input"] = self.input_sum / self.input_count
+             # Final mean
+            self.neuron_means["input"] = self.input_sum / self.input_count
 
     # Compute mean activations for each neuron
     def _compute_neuron_mean(self):
@@ -78,34 +80,51 @@ class Profiler:
             count = self.activation_counts[layer]
             self.neuron_means[layer] = total_sum / count
 
+    # Compute mean activations for each channel
+    def _compute_channel_mean(self):
+        for layer_name, neuron_means in self.neuron_means.items():
+            layer = self.layer_types.get(layer_name)
+
+            if isinstance(layer, nn.Conv2d):
+                # neuron_means: [C,H,W]
+                self.channel_means[layer_name] = neuron_means.mean(dim=(1, 2))
+
     # Compute mean activations for each layer
     def _compute_layer_mean(self):
-        for layer, neuron_means in self.neuron_means.items():
-            self.layer_means[layer] = neuron_means.mean()
+        for layer_name, neuron_means in self.neuron_means.items():
+            layer = self.layer_types.get(layer_name)
+
+            if isinstance(layer, nn.Conv2d):
+                self.layer_means[layer_name] = self.channel_means[layer_name].mean()
+            else:
+                self.layer_means[layer_name] = neuron_means.mean()
 
     # Compute mean activations for each block
     def compute_block_mean(self):
         pass
 
     # Execute profiling over the provided samples
-    def execute(self, samples):
+    def execute(self, samples, batch_size=128):
         self._reset_stats()
         self._register_hooks()
         self.model.eval()
 
-        self._compute_input_mean(samples)
+        self._compute_input_mean(samples, batch_size=batch_size)
 
         with torch.no_grad():
-            for sample in samples:
-                sample = ensure_tensor_batch(sample)
-                self.model(sample)
+            # Batched forward passes
+            for i in range(0, len(samples), batch_size):
+                batch = samples[i:i+batch_size]
+                self.model(batch)
 
         self._remove_hooks()
         self._compute_neuron_mean()
+        self._compute_channel_mean()
         self._compute_layer_mean()
 
         return {
             "neuron_means": self.neuron_means,
+            "channel_means": self.channel_means,
             "layer_means": self.layer_means,
         }
 
@@ -118,5 +137,6 @@ class Profiler:
         self.activation_counts = {}
 
         self.neuron_means = {}
+        self.channel_means = {}
         self.layer_means = {}
         self.block_means = {}
