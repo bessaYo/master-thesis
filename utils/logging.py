@@ -1,4 +1,4 @@
-# core/utils/logging.py
+# utils/logging.py
 
 import torch
 from typing import Dict, List, Any, Callable
@@ -6,8 +6,9 @@ from core.graph import Graph
 
 
 class SlicerLogger:
-    def __init__(self, enabled: bool = True):
+    def __init__(self, enabled: bool = True, verbose: bool = False):
         self.enabled = enabled
+        self.verbose = verbose 
 
     def log(self, *args):
         if self.enabled:
@@ -30,8 +31,7 @@ class SlicerLogger:
     ):
         nodes = list(graph.get_nodes())
         compute_nodes = [
-            n
-            for n in nodes
+            n for n in nodes
             if n.op in ("call_module", "call_function")
             and graph.get_type(n) not in ("output", "attr")
         ]
@@ -47,12 +47,9 @@ class SlicerLogger:
                         total_params += p.numel()
 
         self.header("MODEL SUMMARY")
-        self.log(f"  Model Name: {graph.model.__class__.__name__}")
-        self.log(f"  Layers:     {len(compute_nodes)}")
-        self.log(f"  Parameters: {total_params:,}")
-        self.log(f"  Neurons:    {total_neurons:,}")
-        self.log(f"  Target:     index {target_index}")
-        self.log(f"  Theta:      {theta}")
+        self.log(f"  Model:   {graph.model.__class__.__name__}")
+        self.log(f"  Layers:  {len(compute_nodes)} | Params: {total_params:,} | Neurons: {total_neurons:,}")
+        self.log(f"  Target:  index {target_index} | Theta: {theta}")
 
     def layer_table(
         self,
@@ -60,8 +57,12 @@ class SlicerLogger:
         neuron_deltas: Dict[str, torch.Tensor],
         key_fn: Callable,
     ):
+        
+        if not self.verbose:
+            return
+            
         self.header("LAYER DETAILS")
-        self.log(f"{'Layer':<30} | {'Type':<15} | {'Neurons':>10} |")
+        self.log(f"{'Layer':<30} | {'Type':<15} | {'Neurons':>10}")
         self.separator()
 
         for node in graph.get_nodes():
@@ -76,7 +77,7 @@ class SlicerLogger:
             node_type = graph.get_type(node)
             neurons = delta.numel()
 
-            self.log(f"{key:<30} | {node_type:<15} | {neurons:>10,} | ")
+            self.log(f"{key:<30} | {node_type:<15} | {neurons:>10,}")
 
     def results(
         self,
@@ -87,15 +88,11 @@ class SlicerLogger:
         key_fn: Callable,
         neuron_deltas: Dict[str, torch.Tensor],
     ):
-        self.header("SLICE RESULTS")
-        self.log(
-            f"{'Layer':<30} | {'Neurons in Slice':>22} | {'Synapses in Slice':>18}"
-        )
-        self.separator()
-
         total_neurons = 0
         slice_neurons = 0
-        slice_syn_all = 0
+        slice_synapses = 0
+
+        layer_results = []
 
         for node in graph.get_nodes():
             if node.op not in ("call_module", "placeholder", "call_function"):
@@ -105,30 +102,39 @@ class SlicerLogger:
             if key not in neuron_contributions:
                 continue
 
-            # Neurons
             contrib = neuron_contributions[key]
             n_slice = (contrib != 0).sum().item()
             n_total = contrib.numel()
+            s_slice = len(synapse_contributions.get(key, []))
 
             total_neurons += n_total
             slice_neurons += n_slice
+            slice_synapses += s_slice
 
-            pct_n = 100 * n_slice / n_total if n_total > 0 else 0
-            neuron_str = f"{n_slice:>6} / {n_total:<6} ({pct_n:>5.1f}%)"
+            layer_results.append({
+                "key": key,
+                "n_slice": n_slice,
+                "n_total": n_total,
+                "s_slice": s_slice,
+            })
 
-            # Synapses (slice only)
-            s_slice = len(synapse_contributions.get(key, []))
-            slice_syn_all += s_slice
-            synapse_str = f"{s_slice:>6}"
+        # Show layer-wise results
+        if self.verbose:
+            self.header("SLICE RESULTS")
+            self.log(f"{'Layer':<30} | {'Neurons in Slice':>22} | {'Synapses':>10}")
+            self.separator()
 
-            self.log(f"{key:<30} | {neuron_str} | {synapse_str}")
+            for r in layer_results:
+                pct = 100 * r["n_slice"] / r["n_total"] if r["n_total"] > 0 else 0
+                neuron_str = f"{r['n_slice']:>6} / {r['n_total']:<6} ({pct:>5.1f}%)"
+                self.log(f"{r['key']:<30} | {neuron_str} | {r['s_slice']:>10}")
 
-        self.separator()
-        total_pct_n = 100 * slice_neurons / total_neurons if total_neurons > 0 else 0
+            self.separator()
 
-        self.log(
-            f"{'TOTAL':<30} | "
-            f"{slice_neurons:>6} / {total_neurons:<6} ({total_pct_n:>5.1f}%) | "
-            f"{slice_syn_all:>6}"
-        )
-        self.log(f"\nBackward time: {backward_time:.4f}s")
+        # Summary
+        pct_n = 100 * slice_neurons / total_neurons if total_neurons > 0 else 0
+        
+        self.header("SLICE SUMMARY")
+        self.log(f"  Neurons:  {slice_neurons:,} / {total_neurons:,} ({pct_n:.1f}%)")
+        self.log(f"  Synapses: {slice_synapses:,}")
+        self.log(f"  Time:     {backward_time:.4f}s")

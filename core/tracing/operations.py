@@ -1,25 +1,22 @@
-# core/analysis/operations.py
+# core/tracing/operations.py
 
-from typing import List, Dict, Any, Tuple, Optional, Set
 import torch
-import torch.nn as nn
-
-"""
-This class defines layer-specific contribution operations for the backward analysis
-Operations compute:
-1. The contributions of neurons in the previous layer
-2. The contributions of the synapses
-
-"""
 
 
 class BackwardOperations:
+    """
+    Layer-specific contribution operations for backward analysis.
+    
+    Each operation computes:
+    1. Contributions of neurons in the previous layer
+    2. Contributions of synapses (connections)
+    """
 
-    def __init__(self, theta: float = 0.0):
+    def __init__(self, theta=0.0):
         self.theta = theta
 
-    # Fully connected (linear) operation
     def linear(self, module, CONTRIB_n, delta_n, delta_i):
+        """Backward contribution for fully connected layer."""
         W = module.weight.detach()
         out_c = CONTRIB_n.squeeze()
         out_d = delta_n.squeeze()
@@ -37,23 +34,21 @@ class BackwardOperations:
 
             for i in range(W.shape[1]):
                 w, dx = W[j, i], flat_in[i]
-                cands.append(
-                    {
-                        "i": i,
-                        "local": out_c[j] * dy * w * dx,
-                        "w_dx": float(w * dx),
-                    }
-                )
+                cands.append({
+                    "i": i,
+                    "local": out_c[j] * dy * w * dx,
+                    "w_dx": float(w * dx),
+                })
 
-            for c in self.theta_filter(cands, float(dy)):
+            for c in self._theta_filter(cands, float(dy)):
                 s = torch.sign(c["local"])
                 parent[c["i"]] += s
                 syn.append({"i": c["i"], "j": j, "sign": float(s)})
 
         return syn, parent.reshape(delta_i.shape)
 
-    # Convolution operation
     def conv2d(self, module, CONTRIB_n, delta_n, delta_i, active_channels=None):
+        """Backward contribution for convolutional layer."""
         W = module.weight.detach()
 
         sH, sW = (
@@ -80,7 +75,7 @@ class BackwardOperations:
         syn = []
 
         for co in range(C_out):
-            # Skip non-active channels (block filtering)
+            # Skip non-active channels (channel filtering)
             if active_channels is not None and co not in active_channels:
                 continue
 
@@ -105,36 +100,27 @@ class BackwardOperations:
                                 if 0 <= hi < H_in and 0 <= wi < W_in:
                                     dx = delta_i[0, ci_start + ci, hi, wi]
                                     w = W[co, ci, kh, kw]
-                                    cands.append(
-                                        {
-                                            "ci": ci_start + ci,
-                                            "h": hi,
-                                            "w": wi,
-                                            "local": CONTRIB_n[0, co, ho, wo]
-                                            * dy
-                                            * w
-                                            * dx,
-                                            "w_dx": float(w * dx),
-                                        }
-                                    )
+                                    cands.append({
+                                        "ci": ci_start + ci,
+                                        "h": hi,
+                                        "w": wi,
+                                        "local": CONTRIB_n[0, co, ho, wo] * dy * w * dx,
+                                        "w_dx": float(w * dx),
+                                    })
 
-                    for c in self.theta_filter(cands, float(dy)):
+                    for c in self._theta_filter(cands, float(dy)):
                         s = torch.sign(c["local"])
                         input_contrib[0, c["ci"], c["h"], c["w"]] += s
-                        syn.append(
-                            {
-                                "i": int(
-                                    c["ci"] * H_in * W_in + c["h"] * W_in + c["w"]
-                                ),
-                                "j": int(co * H_out * W_out + ho * W_out + wo),
-                                "sign": float(s),
-                            }
-                        )
+                        syn.append({
+                            "i": int(c["ci"] * H_in * W_in + c["h"] * W_in + c["w"]),
+                            "j": int(co * H_out * W_out + ho * W_out + wo),
+                            "sign": float(s),
+                        })
 
         return syn, input_contrib
 
-    # Max Pooling operation
     def maxpool2d(self, indices, CONTRIB_n, delta_n, delta_i):
+        """Backward contribution for max pooling layer."""
         _, C, H_out, W_out = CONTRIB_n.shape
         _, _, H_in, W_in = delta_i.shape
 
@@ -159,17 +145,16 @@ class BackwardOperations:
                     s = torch.sign(local)
                     out[0, c, hi, wi] += s
 
-                    syn.append(
-                        {
-                            "i": int(c * H_in * W_in + hi * W_in + wi),
-                            "j": int(c * H_out * W_out + ho * W_out + wo),
-                            "sign": float(s.item()),
-                        }
-                    )
+                    syn.append({
+                        "i": int(c * H_in * W_in + hi * W_in + wi),
+                        "j": int(c * H_out * W_out + ho * W_out + wo),
+                        "sign": float(s.item()),
+                    })
+
         return syn, out
 
-    # Average Pooling operation
     def avgpool2d(self, CONTRIB_n, delta_n, delta_i, module=None):
+        """Backward contribution for average pooling layer."""
         _, C, H_out, W_out = CONTRIB_n.shape
         _, _, H_in, W_in = delta_i.shape
 
@@ -232,35 +217,33 @@ class BackwardOperations:
                             out[0, c, hi, wi] += s
 
                             if s != 0:
-                                syn.append(
-                                    {
-                                        "i": int(c * H_in * W_in + hi * W_in + wi),
-                                        "j": int(c * H_out * W_out + ho * W_out + wo),
-                                        "sign": float(s.item()),
-                                    }
-                                )
+                                syn.append({
+                                    "i": int(c * H_in * W_in + hi * W_in + wi),
+                                    "j": int(c * H_out * W_out + ho * W_out + wo),
+                                    "sign": float(s.item()),
+                                })
+
         return syn, out
 
-    # ReLU activation function (passthrough)
     def relu(self, activation, CONTRIB_n, delta_n, delta_i):
-        # Create a mask where activation > 0
+        """Backward contribution for ReLU activation."""
         mask = (activation > 0).float()
         return self._passthrough(CONTRIB_n, delta_n, delta_i * mask)
 
-    # Scale operation for BatchNorm layers (passthrough)
     def batchnorm2d(self, CONTRIB_n, delta_n, delta_i):
+        """Backward contribution for batch normalization."""
         return self._passthrough(CONTRIB_n, delta_n, delta_i)
 
-    # Add operation for residual skip connections (passthrough)
     def add(self, CONTRIB_n, delta_n, delta_i):
+        """Backward contribution for residual add operation."""
         return self._passthrough(CONTRIB_n, delta_n, delta_i)
 
-    # Flatten operation. Reshapes the contributions to match the input shape.
     def flatten(self, CONTRIB_n, delta_i):
+        """Backward contribution for flatten/reshape operation."""
         return [], CONTRIB_n.reshape(delta_i.shape)
 
-    # Generic passthrough operation for layers that do not modify the data shape (e.g., ReLU, BatchNorm, Add)
     def _passthrough(self, CONTRIB_n, delta_n, delta_i, track_synapses=True):
+        """Generic passthrough for layers that don't modify shape."""
         local = CONTRIB_n * delta_n * delta_i
         contrib = torch.sign(local)
 
@@ -275,10 +258,8 @@ class BackwardOperations:
         ]
         return syn, contrib
 
-    # Function to filter synapse candidates based on theta threshold
-    # Sort by |w_i * Δx_i| ascending, remove smallest
-    # while |Σ removed| / |y| < θ
-    def theta_filter(self, candidates: List[Dict[str, Any]], output_value: float) -> List[Dict[str, Any]]:
+    def _theta_filter(self, candidates, output_value):
+        """Filter synapse candidates based on theta threshold."""
         if not candidates or abs(output_value) < 1e-9:
             return candidates
 

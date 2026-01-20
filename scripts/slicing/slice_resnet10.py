@@ -1,4 +1,4 @@
-# scripts/resnet10/slice_resnet10.py
+# scripts/slicing/slice_resnet10.py
 
 import torch
 from torchvision import datasets, transforms
@@ -32,17 +32,22 @@ print(f"Sample label: {label}")
 print("=" * 60)
 
 # === Baseline ===
-print("\n=== Baseline (without Channel Filter) ===")
-slicer = Slicer(
+print("\n=== Baseline ===")
+slicer1 = Slicer(
     model=model,
     input_sample=image,
     precomputed_profile=profile,
 )
-slicer.profile()
-slicer.forward()
-slicer.backward(target_index=label, theta=0.3, filter_channels=False, debug=True)
-
-baseline_time = slicer.backward_result["backward_time_sec"]
+slicer1.profile()
+slicer1.forward()
+slicer1.backward(
+    target_index=label, 
+    theta=0.3, 
+    channel_mode=False, 
+    block_mode=False,
+    debug=True
+)
+baseline_time = slicer1.backward_result["backward_time_sec"]
 
 # === With Channel Filter ===
 print("\n=== With Channel Filter (top 20%) ===")
@@ -53,12 +58,42 @@ slicer2 = Slicer(
 )
 slicer2.profile()
 slicer2.forward()
-slicer2.backward(target_index=label, theta=0.3, filter_channels=True, filter_percent=0.2, debug=True)
+slicer2.backward(
+    target_index=label, 
+    theta=0.3, 
+    channel_mode=True, 
+    block_mode=False,
+    filter_percent=0.2, 
+    debug=True
+)
+channel_time = slicer2.backward_result["backward_time_sec"]
 
-filtered_time = slicer2.backward_result["backward_time_sec"]
+# === With Channel Filter + Block Skip ===
+print("\n=== With Channel Filter + Block Skip ===")
+slicer3 = Slicer(
+    model=model,
+    input_sample=image,
+    precomputed_profile=profile,
+)
+slicer3.profile()
+slicer3.forward()
+slicer3.backward(
+    target_index=label, 
+    theta=0.3, 
+    channel_mode=True, 
+    block_mode=True,
+    filter_percent=0.2,
+    block_threshold=0.5,
+    debug=True
+)
+combined_time = slicer3.backward_result["backward_time_sec"]
 
 # === Comparison ===
-print(f"\n=== Comparison ===")
-print(f"Baseline:  {baseline_time:.3f}s")
-print(f"Filtered:  {filtered_time:.3f}s")
-print(f"Speedup:   {baseline_time / filtered_time:.2f}x")
+print("\n" + "=" * 60)
+print("COMPARISON")
+print("=" * 60)
+print(f"{'Method':<30} | {'Time':>10} | {'Speedup':>10}")
+print("-" * 60)
+print(f"{'Baseline':<30} | {baseline_time:>10.3f}s | {1.0:>10.2f}x")
+print(f"{'Channel Filter':<30} | {channel_time:>10.3f}s | {baseline_time/channel_time:>10.2f}x")
+print(f"{'Channel + Block Skip':<30} | {combined_time:>10.3f}s | {baseline_time/combined_time:>10.2f}x")

@@ -2,7 +2,7 @@ import torch
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 from models import get_model
-from core.analysis.profiler import Profiler
+from core.tracing.profiler import Profiler
 from tqdm import tqdm
 import os
 

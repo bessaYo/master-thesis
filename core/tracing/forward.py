@@ -1,15 +1,17 @@
-# core/analysis/forward.py
+# core/tracing/forward.py
 
 import torch
 import torch.nn as nn
 from utils.tensor_utils import ensure_tensor_batch
+from models.resnet import BasicBlock
 
 
 class ForwardAnalyzer:
-    def __init__(self, model: nn.Module, profiler_result):
+    def __init__(self, model, profiler_result):
         self.model = model
         self.hooks = []
         self.layer_types = {}
+        self.blocks = {}
 
         # Set means from profiler result
         self.neuron_means = profiler_result["neuron_means"]
@@ -22,12 +24,13 @@ class ForwardAnalyzer:
         self.neuron_deltas = {}
         self.layer_deltas = {}
         self.channel_deltas = {}
+        self.block_deltas = {}
 
     # Function that registers hook function to each layer
     def _register_hooks(self):
         for name, layer in self.model.named_modules():
 
-            # Skip layer with children (like sequentials or blocks) for now
+            # Skip layer with children
             if len(list(layer.children())) > 0:
                 continue
 
@@ -83,6 +86,34 @@ class ForwardAnalyzer:
             self.layer_deltas[layer_name] = self.channel_deltas[layer_name].mean()
         else:
             self.layer_deltas[layer_name] = self.neuron_deltas[layer_name].abs().mean()
+    
+    # Compute block deltas for all identified blocks
+    def _compute_block_deltas(self):
+        for block_name, layer_names in self.blocks.items():
+            deltas = []
+
+            for layer in layer_names:
+                if layer in self.layer_deltas:
+                    delta = self.layer_deltas[layer]
+                    if isinstance(delta, torch.Tensor):
+                        deltas.append(delta.abs())
+                    else:
+                        deltas.append(torch.tensor(abs(delta)))
+
+            if deltas:
+                self.block_deltas[block_name] = torch.stack(deltas).mean()
+
+    def _identify_blocks(self):
+        self.blocks = {}
+        
+        for name, module in self.model.named_modules():
+            if isinstance(module, BasicBlock):
+                self.blocks[name] = [] 
+
+        for block_name in self.blocks:
+            for layer_name in self.layer_deltas.keys():
+                if layer_name.startswith(block_name + "."):
+                    self.blocks[block_name].append(layer_name)
 
     # Execute forward analysis for a given sample
     def execute(self, sample):
@@ -108,6 +139,10 @@ class ForwardAnalyzer:
 
             self._compute_layer_delta(layer_name)
 
+        # Identify blocks and compute block deltas
+        self._identify_blocks()
+        self._compute_block_deltas()
+
         self._remove_hooks()
 
         return {
@@ -115,6 +150,8 @@ class ForwardAnalyzer:
             "neuron_deltas": self.neuron_deltas,
             "layer_deltas": self.layer_deltas,
             "channel_deltas": self.channel_deltas,
+            "block_deltas": self.block_deltas,
+            "blocks": self.blocks,
             "pool_indices": self.pool_indices,
         }
 
@@ -124,4 +161,6 @@ class ForwardAnalyzer:
         self.neuron_deltas = {}
         self.layer_deltas = {}
         self.channel_deltas = {}
+        self.block_deltas = {}
+        self.blocks = {}
         self.pool_indices = {}
