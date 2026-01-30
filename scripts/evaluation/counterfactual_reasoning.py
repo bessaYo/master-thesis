@@ -395,9 +395,11 @@ def compute_slice(
     block_threshold: float = 0.5
 ) -> Dict[str, torch.Tensor]:
     """Compute slice for a single sample."""
+    device = next(model.parameters()).device
+    
     slicer = Slicer(
         model=model,
-        input_sample=image.unsqueeze(0),
+        input_sample=image.unsqueeze(0).to(device),
         precomputed_profile=profile
     )
     slicer.profile()
