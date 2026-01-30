@@ -4,29 +4,34 @@ import torch
 
 from .lenet import LeNet
 from .simple import SimpleNN, SimpleCNN
-from .resnet import ResNet10, ResNet18
+from .resnet import ResNet10, ResNet18, ResNet34
 
 MODELS = {
     "lenet": LeNet,
     "resnet10": ResNet10,
     "resnet18": ResNet18,
+    "resnet34": ResNet34,
     "simple_nn": SimpleNN,
     "simple_cnn": SimpleCNN,
 }
 
 
 def get_model(name, pretrained=False):
-    if name == "resnet18":
+    """Get a model by name, optionally loading pretrained weights."""
+    if name == "resnet34":
+        model = ResNet34()
+        path = "checkpoints/resnet34_cifar10.pt"
+    
+    elif name == "resnet18":
         model = ResNet18()
-        path = "checkpoints/resnet18_cifar10.pth"
+        path = "checkpoints/resnet18_cifar10.pt"
 
     elif name == "resnet10":
         model = ResNet10()
-        path = "checkpoints/resnet10_cifar10.pth"
-
+        path = "checkpoints/resnet10_cifar10.pt"
     elif name == "lenet":
         model = LeNet()
-        path = "checkpoints/lenet_mnist.pth"
+        path = "checkpoints/lenet_mnist.pt"
 
     else:
         raise ValueError(f"Unknown model: {name}")

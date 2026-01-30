@@ -1,4 +1,4 @@
-# models/resnet10.py
+# models/resnet.py
 
 import torch
 import torch.nn as nn
@@ -47,20 +47,36 @@ class BasicBlock(nn.Module):
 class ResNet(nn.Module):
     def __init__(self, block, num_blocks, num_classes=10):
         super().__init__()
-        self.in_channels = 16
         
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(16)
+        # Detect if 4-layer variant (ResNet34, etc.)
+        self.has_layer4 = len(num_blocks) == 4
+        
+        if self.has_layer4:
+            # Standard ResNet (34, etc.)
+            self.in_channels = 64
+            init_channels = 64
+            channels = [64, 128, 256, 512]
+        else:
+            # Small ResNet (10, 18)
+            self.in_channels = 16
+            init_channels = 16
+            channels = [16, 32, 64]
+        
+        self.conv1 = nn.Conv2d(3, init_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(init_channels)
         self.relu1 = nn.ReLU()
         
         # ResNet Blocks
-        self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
-        self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
-        self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2)
+        self.layer1 = self._make_layer(block, channels[0], num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, channels[1], num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, channels[2], num_blocks[2], stride=2)
+        
+        if self.has_layer4:
+            self.layer4 = self._make_layer(block, channels[3], num_blocks[3], stride=2)
         
         # Final
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(64, num_classes)
+        self.fc = nn.Linear(channels[-1], num_classes)
 
     def _make_layer(self, block, out_channels, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
@@ -81,6 +97,9 @@ class ResNet(nn.Module):
         x = self.layer2(x)
         x = self.layer3(x)
         
+        if self.has_layer4:
+            x = self.layer4(x)
+        
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
         x = self.fc(x)
@@ -94,3 +113,7 @@ def ResNet10(num_classes=10):
 
 def ResNet18(num_classes=10):
     return ResNet(BasicBlock, [2, 2, 2], num_classes)
+
+
+def ResNet34(num_classes=10):
+    return ResNet(BasicBlock, [3, 4, 6, 3], num_classes)

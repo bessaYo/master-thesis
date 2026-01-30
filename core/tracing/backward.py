@@ -78,6 +78,7 @@ class BackwardAnalyzer:
 
         for node in reversed(list(self.graph.get_nodes())):
             if self._should_skip(node):
+                print(f"[DEBUG] Skipping Node: {node.name}") if self.debug else None
                 continue
             self._propagate_contributions(node, skip_blocks)
 
@@ -161,6 +162,8 @@ class BackwardAnalyzer:
         """Dispatch to operator-specific backward contribution rule."""
         node_type = self.graph.get_type(node)
         node_key = self.graph.key(node)
+
+        print(f"[DEBUG] Backward - Processing Node: {node.name}, Type: {node_type}") if self.debug else None
 
         if node_type == "linear":
             module = self.graph.get_module(node)
