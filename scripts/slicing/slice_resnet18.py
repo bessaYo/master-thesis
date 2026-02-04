@@ -34,24 +34,21 @@ test_data = datasets.CIFAR10(
 image, label = test_data[0]
 image = image.unsqueeze(0)  # [1, 3, 32, 32]
 
-print(f"Sample label: {label}")
-print("=" * 60)
-
 # === Baseline ===
-print("\n=== Baseline ===")
 slicer1 = Slicer(
     model=model,
     input_sample=image,
     precomputed_profile=profile,
+    debug=True,
 )
 slicer1.profile()
 slicer1.forward()
+
 slicer1.backward(
     target_index=label,
     theta=0.3,
     channel_mode=False,
     block_mode=False,
-    debug=True,
 )
 baseline_time = slicer1.backward_result["backward_time_sec"]
 
@@ -61,6 +58,7 @@ slicer2 = Slicer(
     model=model,
     input_sample=image,
     precomputed_profile=profile,
+    debug=True,
 )
 slicer2.profile()
 slicer2.forward()
@@ -69,8 +67,7 @@ slicer2.backward(
     theta=0.3,
     channel_mode=True,
     block_mode=False,
-    filter_percent=0.2,
-    debug=True,
+    channel_alpha=0.9,
 )
 channel_time = slicer2.backward_result["backward_time_sec"]
 
@@ -80,6 +77,7 @@ slicer3 = Slicer(
     model=model,
     input_sample=image,
     precomputed_profile=profile,
+    debug=True,
 )
 slicer3.profile()
 forward_result = slicer3.forward()
@@ -90,9 +88,8 @@ slicer3.backward(
     theta=0.3,
     channel_mode=True,
     block_mode=True,
-    filter_percent=0.2,
-    block_threshold=0.5,
-    debug=True,
+    channel_alpha=0.9,
+    block_beta=0.9,
 )
 combined_time = slicer3.backward_result["backward_time_sec"]
 

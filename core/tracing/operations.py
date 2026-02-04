@@ -15,11 +15,12 @@ class BackwardOperations:
     def __init__(self, theta=0.0):
         self.theta = theta
 
-    def linear(self, module, CONTRIB_n, delta_n, delta_i):
+    def linear(self, module, CONTRIB_n, delta_n, delta_i, activation_n=None):
         """Backward contribution for fully connected layer."""
         W = module.weight.detach()
-        out_c = CONTRIB_n.squeeze()
-        out_d = delta_n.squeeze()
+        out_c = CONTRIB_n.view(-1)
+        out_d = delta_n.view(-1)
+        out_y = activation_n.view(-1) if activation_n is not None else out_d
 
         flat_in = delta_i.reshape(-1)
         parent = torch.zeros_like(flat_in)
@@ -30,6 +31,7 @@ class BackwardOperations:
                 continue
 
             dy = out_d[j]
+            y = out_y[j]
             cands = []
 
             for i in range(W.shape[1]):
@@ -40,14 +42,14 @@ class BackwardOperations:
                     "w_dx": float(w * dx),
                 })
 
-            for c in self._theta_filter(cands, float(dy)):
+            for c in self._theta_filter(cands, float(y)):
                 s = torch.sign(c["local"])
                 parent[c["i"]] += s
                 syn.append({"i": c["i"], "j": j, "sign": float(s)})
 
         return syn, parent.reshape(delta_i.shape)
 
-    def conv2d(self, module, CONTRIB_n, delta_n, delta_i, active_channels=None):
+    def conv2d(self, module, CONTRIB_n, delta_n, delta_i, active_channels=None, activation_n=None):
         """Backward contribution for convolutional layer."""
         W = module.weight.detach()
 
@@ -88,6 +90,7 @@ class BackwardOperations:
                         continue
 
                     dy = delta_n[0, co, ho, wo]
+                    y = activation_n[0, co, ho, wo] if activation_n is not None else dy
                     hs = ho * sH - pH
                     ws = wo * sW - pW
 
@@ -108,7 +111,7 @@ class BackwardOperations:
                                         "w_dx": float(w * dx),
                                     })
 
-                    for c in self._theta_filter(cands, float(dy)):
+                    for c in self._theta_filter(cands, float(y)):
                         s = torch.sign(c["local"])
                         input_contrib[0, c["ci"], c["h"], c["w"]] += s
                         syn.append({

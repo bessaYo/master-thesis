@@ -1,79 +1,132 @@
 # core/blocks/block_filter.py
 
-from abc import ABC, abstractmethod
 import torch
 
+class ChannelBlockFilter():
+    """Energy-based channel filtering.
 
-class BlockFilter(ABC):
-    """Abstract base class for block filtering strategies."""
+    Keeps the minimal set of channels whose cumulative delta energy
+    explains at least ``alpha`` fraction of the total channel energy.
+    This is analogous to the block-level energy filter but applied
+    per conv layer, and avoids the cascade problem of a fixed top-k%.
+    """
 
-    @abstractmethod
-    def get_active_blocks(self, deltas, contrib_mask=None):
-        """Retrieve the set of active blocks after filtering."""
-        pass
+    def __init__(self, alpha=0.8):
+        self.alpha = alpha
 
-
-class ChannelBlockFilter(BlockFilter):
-    """Filters channels by keeping only top-k% by delta magnitude."""
-
-    def __init__(self, percent=0.2):
-        self.percent = percent
-
-    def get_active_blocks(self, channel_deltas, contrib_channels=None):
-        """Return top-k% channels by delta magnitude."""
+    def get_active_channels(self, channel_deltas, contrib_channels=None):
+        """Return channels that explain alpha fraction of energy."""
         deltas = channel_deltas.squeeze()  # [C]
 
         if contrib_channels is not None and len(contrib_channels) > 0:
-            # Filter only within channels that have contributions
             contrib_list = list(contrib_channels)
             contrib_indices = torch.tensor(contrib_list, dtype=torch.long)
-            contrib_deltas = deltas[contrib_indices]
-
-            k = max(1, int(len(contrib_list) * self.percent))
-            top_k_idx = torch.topk(contrib_deltas.abs(), k).indices
-
-            return set(contrib_indices[top_k_idx].tolist())
+            energies = deltas[contrib_indices].abs()
         else:
-            # Fallback: top-k% of all channels
-            k = max(1, int(len(deltas) * self.percent))
-            _, top_indices = torch.topk(deltas.abs(), k)
-            return set(top_indices.tolist())
+            contrib_indices = torch.arange(len(deltas))
+            energies = deltas.abs()
+
+        total_energy = energies.sum().item()
+        if total_energy < 1e-9:
+            return set(contrib_indices.tolist())
+
+        # Sort by descending energy, keep until alpha is reached
+        sorted_idx = energies.argsort(descending=True)
+        cum_energy = 0.0
+        active = set()
+
+        for idx in sorted_idx:
+            active.add(int(contrib_indices[idx].item()))
+            cum_energy += energies[idx].item()
+            if cum_energy / total_energy >= self.alpha:
+                break
+
+        return active
 
 
 class ResBlockFilter:
-    """Filters ResNet blocks by skipping those with low delta values."""
+    """
+    Energy-based filtering of ResNet blocks.
+    Keeps the minimal set of blocks whose accumulated contribution
+    explains at least alpha fraction of total block energy.
+    """
 
-    def __init__(self, threshold=0.5):
-        self.threshold = threshold
+    def __init__(self, alpha=0.9):
+        """
+        alpha ∈ (0, 1]: fraction of total block contribution to preserve
+        """
+        self.alpha = alpha
         self.skip_blocks = set()
 
     def identify_skip_blocks(self, block_deltas, blocks):
-        """Identify blocks to skip based on delta threshold."""
-        print(f"[Block Filter] Using threshold: {self.threshold}")
+        """
+        block_deltas: Dict[str, Tensor or float]
+        blocks: Dict[str, List[layer_names]]
+        """
         self.skip_blocks = set()
 
+        # 1. Compute energy per block
+        block_energy = {}
         for block_name, delta in block_deltas.items():
-            delta_val = delta.item() if isinstance(delta, torch.Tensor) else delta
+            val = delta.item() if isinstance(delta, torch.Tensor) else delta
+            block_energy[block_name] = abs(val)
 
-            # Check if block has conv shortcut (not identity)
+        total_energy = sum(block_energy.values())
+        if total_energy == 0:
+            print("[BlockFilter] Warning: total block energy is zero.")
+            return set()
+
+        # 2. Sort blocks by descending energy
+        sorted_blocks = sorted(
+            block_energy.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+
+        # 3. Keep blocks until alpha energy is reached
+        kept_blocks = set()
+        cum_energy = 0.0
+
+        for block_name, energy in sorted_blocks:
+            kept_blocks.add(block_name)
+            cum_energy += energy
+            if cum_energy / total_energy >= self.alpha:
+                break
+
+        # 4. Skip remaining blocks (if safe)
+        protected_blocks = set()  # NEW
+        for block_name in block_energy.keys():
+            if block_name in kept_blocks:
+                continue
+
             layers = blocks.get(block_name, [])
             has_conv_shortcut = any("shortcut.0" in layer for layer in layers)
 
-            # Only skip blocks with identity shortcut and low delta
-            if delta_val < self.threshold and not has_conv_shortcut:
+            # Only skip identity blocks
+            if not has_conv_shortcut:
                 self.skip_blocks.add(block_name)
+            else:
+                protected_blocks.add(block_name) 
+
+        actually_kept = len(kept_blocks) + len(protected_blocks)
+        actually_skipped = len(self.skip_blocks)
+
+        print(
+            f"[BlockFilter] Energy threshold: {actually_kept}/{len(block_energy)} blocks "
+            f"(α={self.alpha:.2f}, energy={cum_energy/total_energy:.2%})"
+        )
+        if protected_blocks:
+            print(f"[BlockFilter] Protected (conv shortcut): {protected_blocks}")
+        print(f"[BlockFilter] Skip Blocks: {actually_skipped}, Keep Blocks: {actually_kept}")
 
         return self.skip_blocks
 
     def should_skip_layer(self, layer_name):
-        """Check if a layer should be skipped (main path of skipped block)."""
         for block_name in self.skip_blocks:
             if layer_name.startswith(block_name + "."):
-                # Skip main path layers, but NOT shortcut layers
                 if "shortcut" not in layer_name:
                     return True
         return False
 
     def get_skip_blocks(self):
-        """Return set of blocks to skip."""
         return self.skip_blocks

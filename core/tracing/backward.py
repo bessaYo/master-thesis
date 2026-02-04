@@ -21,8 +21,8 @@ class BackwardAnalyzer:
         theta=0.3,
         channel_mode=False,
         block_mode=False,
-        filter_percent=0.2,
-        block_threshold=0.5,
+        channel_alpha=0.8,
+        block_beta=0.9,
         debug=False,
     ):
         self.graph = graph
@@ -30,8 +30,8 @@ class BackwardAnalyzer:
         self.debug = debug
 
         # Filters
-        self.channel_filter = channel_mode and ChannelBlockFilter(percent=filter_percent)
-        self.block_filter = block_mode and ResBlockFilter(threshold=block_threshold)
+        self.channel_filter = channel_mode and ChannelBlockFilter(alpha=channel_alpha)
+        self.block_filter = block_mode and ResBlockFilter(alpha=block_beta)
 
         # Backward operations handler
         self.ops = BackwardOperations(theta=theta)
@@ -78,7 +78,8 @@ class BackwardAnalyzer:
 
         for node in reversed(list(self.graph.get_nodes())):
             if self._should_skip(node):
-                print(f"[DEBUG] Skipping Node: {node.name}") if self.debug else None
+                node_type = self.graph.get_type(node)
+                print(f"[DEBUG] Skipping Node: {node.name}. Type: {node_type}") if self.debug else None
                 continue
             self._propagate_contributions(node, skip_blocks)
 
@@ -86,7 +87,6 @@ class BackwardAnalyzer:
         self._log_results()
 
     def _should_skip(self, node):
-        """Check if node should be skipped during backward pass."""
         if node.op in ("output", "get_attr"):
             return True
 
@@ -98,7 +98,8 @@ class BackwardAnalyzer:
         if node_key in self.skip_main_path_nodes:
             return True
 
-        if (self.neuron_contributions[node_key] != 0).sum().item() == 0:
+        contrib_sum = (self.neuron_contributions[node_key] != 0).sum().item()
+        if contrib_sum == 0:
             return True
 
         return False
@@ -125,11 +126,16 @@ class BackwardAnalyzer:
             self.neuron_contributions[parent_key] += contrib
 
     def _get_parents(self, node, skip_blocks, CONTRIB_n):
-        """Get parents to propagate to. Expands add nodes to their inputs."""
+        """Get parents to propagate to. Skips flatten and expands add nodes."""
         parents = []
 
         for p in self.graph.get_compute_parents(node):
-            if self.graph.get_type(p) == "add":
+            p_type = self.graph.get_type(p)
+            
+            # Skip through flatten - get its parent instead
+            if p_type in ("flatten", "method_view", "method_flatten"):
+                parents.extend(self.graph.get_compute_parents(p))
+            elif p_type == "add":
                 parents.extend(self._expand_add_node(p, skip_blocks, CONTRIB_n))
             else:
                 parents.append(p)
@@ -167,7 +173,8 @@ class BackwardAnalyzer:
 
         if node_type == "linear":
             module = self.graph.get_module(node)
-            return self.ops.linear(module, CONTRIB_n, delta_n, delta_i)
+            activation_n = self.activations.get(node_key)
+            return self.ops.linear(module, CONTRIB_n, delta_n, delta_i, activation_n)
 
         if node_type == "conv2d":
             module = self.graph.get_module(node)
@@ -177,11 +184,20 @@ class BackwardAnalyzer:
                 contrib_channels = set(
                     c for c in range(CONTRIB_n.shape[1]) if (CONTRIB_n[0, c] != 0).any()
                 )
-                active_channels = self.channel_filter.get_active_blocks(
+                active_channels = self.channel_filter.get_active_channels(
                     self.channel_deltas[node_key], contrib_channels
                 )
 
-            return self.ops.conv2d(module, CONTRIB_n, delta_n, delta_i, active_channels)
+                # Zero out non-active channels and update CONTRIB_n for conv2d
+                if active_channels is not None:
+                    mask = torch.zeros(CONTRIB_n.shape[1], dtype=torch.bool, device=CONTRIB_n.device)
+                    for ch in active_channels:
+                        mask[ch] = True
+                    CONTRIB_n = CONTRIB_n * mask.view(1, -1, 1, 1)
+                    self.neuron_contributions[node_key] = CONTRIB_n
+
+            activation_n = self.activations.get(node_key)
+            return self.ops.conv2d(module, CONTRIB_n, delta_n, delta_i, active_channels, activation_n)
 
         if node_type == "batchnorm2d":
             return self.ops.batchnorm2d(CONTRIB_n, delta_n, delta_i)
@@ -203,8 +219,8 @@ class BackwardAnalyzer:
         if node_type == "add":
             return self.ops.add(CONTRIB_n, delta_n, delta_i)
 
-        if node_type in ("flatten", "method_view", "method_flatten"):
-            return self.ops.flatten(CONTRIB_n, delta_i)
+        if node_type in ("flatten", "method_view", "method_flatten", "function_flatten", "builtin_flatten"):
+            return self.ops.flatten(CONTRIB_n, delta_n, delta_i)
 
         return [], CONTRIB_n.clone()
 
@@ -241,12 +257,12 @@ class BackwardAnalyzer:
 
         last_node = self.graph.last_compute_node()
         last_key = self.graph.key(last_node)
-        contrib = self.neuron_contributions[last_key]
 
-        if contrib.dim() == 2:
-            contrib[0, self.target_index] = 1.0
-        elif contrib.dim() == 4:
-            contrib[0, self.target_index, :, :] = 1.0
+        # Direkt ins Dict schreiben statt über Variable
+        if self.neuron_contributions[last_key].dim() == 2:
+            self.neuron_contributions[last_key][0, self.target_index] = 1.0
+        elif self.neuron_contributions[last_key].dim() == 4:
+            self.neuron_contributions[last_key][0, self.target_index, :, :] = 1.0
 
     def _get_skip_blocks(self):
         """Get set of blocks to skip."""

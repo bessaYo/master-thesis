@@ -40,6 +40,7 @@ class BlockStructureAnalyzer:
                 skip_nodes.update(info["main_path_nodes"])
                 if info["post_add_node"]:
                     skip_nodes.discard(info["post_add_node"])
+
         return skip_nodes
 
     def get_block_for_add(self, add_node_name):
