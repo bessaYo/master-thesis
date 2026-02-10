@@ -1,7 +1,7 @@
 # utils/logging.py
 
 import torch
-from typing import Dict, List, Callable
+from typing import Any, Dict, List, Callable
 from core.graph import Graph
 
 
