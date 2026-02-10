@@ -3,8 +3,9 @@ import torch
 import torch.nn as nn
 
 
-# Same model of paper with fixed weights for test purposes
-class SimpleNN(nn.Module):
+class PaperNN(nn.Module):
+    """Example network from NNSlicer Paper"""
+
     def __init__(self):
         super().__init__()
         self.fc1 = nn.Linear(2, 3, bias=False)
@@ -23,8 +24,9 @@ class SimpleNN(nn.Module):
         return x
 
 
-# Convolutional Neural Network for test purposes
 class SimpleCNN(nn.Module):
+    """Small CNN for testing"""
+
     def __init__(self):
         super().__init__()
 
