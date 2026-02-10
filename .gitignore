@@ -1,5 +1,9 @@
 # Python cache
 __pycache__/
+.pytest_cache/
+
+# OS files
+.DS_Store
 
 # Virtual environment
 venv/
