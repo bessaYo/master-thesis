@@ -1,14 +1,14 @@
 # utils/logging.py
 
 import torch
-from typing import Dict, List, Any, Callable
+from typing import Dict, List, Callable
 from core.graph import Graph
 
 
 class SlicerLogger:
     def __init__(self, enabled: bool = True, verbose: bool = False):
         self.enabled = enabled
-        self.verbose = verbose 
+        self.verbose = verbose
 
     def log(self, *args):
         if self.enabled:
@@ -31,7 +31,8 @@ class SlicerLogger:
     ):
         nodes = list(graph.get_nodes())
         compute_nodes = [
-            n for n in nodes
+            n
+            for n in nodes
             if n.op in ("call_module", "call_function")
             and graph.get_type(n) not in ("output", "attr")
         ]
@@ -48,7 +49,9 @@ class SlicerLogger:
 
         self.header("MODEL SUMMARY")
         self.log(f"  Model:   {graph.model.__class__.__name__}")
-        self.log(f"  Layers:  {len(compute_nodes)} | Params: {total_params:,} | Neurons: {total_neurons:,}")
+        self.log(
+            f"  Layers:  {len(compute_nodes)} | Params: {total_params:,} | Neurons: {total_neurons:,}"
+        )
         self.log(f"  Target:  index {target_index} | Theta: {theta}")
 
     def layer_table(
@@ -57,10 +60,10 @@ class SlicerLogger:
         neuron_deltas: Dict[str, torch.Tensor],
         key_fn: Callable,
     ):
-        
+
         if not self.verbose:
             return
-            
+
         self.header("LAYER DETAILS")
         self.log(f"{'Layer':<30} | {'Type':<15} | {'Neurons':>10}")
         self.separator()
@@ -111,12 +114,14 @@ class SlicerLogger:
             slice_neurons += n_slice
             slice_synapses += s_slice
 
-            layer_results.append({
-                "key": key,
-                "n_slice": n_slice,
-                "n_total": n_total,
-                "s_slice": s_slice,
-            })
+            layer_results.append(
+                {
+                    "key": key,
+                    "n_slice": n_slice,
+                    "n_total": n_total,
+                    "s_slice": s_slice,
+                }
+            )
 
         # Show layer-wise results
         if self.verbose:
@@ -133,7 +138,7 @@ class SlicerLogger:
 
         # Summary
         pct_n = 100 * slice_neurons / total_neurons if total_neurons > 0 else 0
-        
+
         self.header("SLICE SUMMARY")
         self.log(f"  Neurons:  {slice_neurons:,} / {total_neurons:,} ({pct_n:.1f}%)")
         self.log(f"  Synapses: {slice_synapses:,}")
