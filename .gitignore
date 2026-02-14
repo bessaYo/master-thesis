@@ -17,6 +17,9 @@ data/
 # Python packaging
 *.egg-info/
 
+# Ruff
+.ruff_cache/
+
 
 
 
