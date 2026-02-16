@@ -26,6 +26,7 @@ class BackwardAnalyzer:
         self.neuron_deltas = forward_result["neuron_deltas"]
         self.layer_deltas = forward_result["layer_deltas"]
         self.channel_deltas = forward_result.get("channel_deltas", {})
+        self.pool_inputs = forward_result.get("pool_inputs", {})
         self.block_deltas = forward_result.get("block_deltas", {})
         self.blocks = forward_result.get("blocks", {})
 
@@ -51,7 +52,7 @@ class BackwardAnalyzer:
                 self._process_node(node, skip_blocks)
 
         self.backward_time = time.perf_counter() - start
-    
+
     # Get parent nodes for a given node and add contribution
     def _process_node(self, node, skip_blocks):
         node_key = self.graph.get_key(node)
@@ -89,15 +90,16 @@ class BackwardAnalyzer:
             return self.ops.batchnorm2d(CONTRIB_n, delta_n, delta_i)
 
         if node_type == "relu":
-            activation = self._get_activation(node_key)
+            activation = self._get_activation(node)
             return self.ops.relu(activation, CONTRIB_n, delta_n, delta_i)
 
-        if node_type in ("maxpool2d", "avgpool2d"):
+        if node_type == "maxpool2d":
             module = self.graph.get_module(node)
-            return self.ops.pool(CONTRIB_n, delta_n, delta_i, module)
+            pool_input = self.pool_inputs.get(node_key)
+            return self.ops.maxpool(module, CONTRIB_n, delta_n, delta_i, pool_input)
 
-        if node_type == "adaptiveavgpool2d":
-            return self.ops.pool(CONTRIB_n, delta_n, delta_i, None)
+        if node_type in ("avgpool2d", "adaptiveavgpool2d"):
+            return self.ops.avgpool(CONTRIB_n, delta_n, delta_i)
 
         if node_type == "add":
             return self.ops.add(CONTRIB_n, delta_n, delta_i)
@@ -144,7 +146,7 @@ class BackwardAnalyzer:
         add_key = self.graph.get_key(add_node)
         parent_nodes = []
 
-        # Get corresponding block for add node 
+        # Get corresponding block for add node
         block = self.block_analyzer.get_block_for_add(add_node.name) if self.block_analyzer else None
         # Check if block is skipped
         block_skip = True if block and block in skip_blocks else False

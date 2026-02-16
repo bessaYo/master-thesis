@@ -1,4 +1,4 @@
-"""Report printing for single-image slicing"""
+# utils/report.py
 
 import torch.nn as nn
 
@@ -6,7 +6,7 @@ W = 100  # report width
 
 
 def compute_layer_synapses(model, neuron_contributions):
-    """Compute per-layer synapse counts (total and active) at pixel level"""
+    """Compute per-layer synapse counts"""
     modules = {name: mod for name, mod in model.named_modules()}
     layer_synapses = {}
 
@@ -32,7 +32,7 @@ def compute_layer_synapses(model, neuron_contributions):
 
 
 def compute_layer_channels(model, neuron_contributions):
-    """Compute per-layer active/total channel counts for Conv2d layers"""
+    """Compute active/total channel counts for Conv2d layers"""
     modules = {name: mod for name, mod in model.named_modules()}
     layer_channels = {}
 
@@ -58,9 +58,7 @@ def print_header(
     image_label,
     dataset_idx,
     theta,
-    channel_mode,
     channel_alpha,
-    block_mode,
     block_beta,
 ):
     total_params = sum(p.numel() for p in model.parameters())
@@ -71,15 +69,13 @@ def print_header(
     print(f"  Dataset:      {dataset_name.upper()}")
     if class_names:
         print(f"  Target class: {class_names[target_idx]} (index {target_idx})")
-        print(
-            f"  Input image:  test set #{dataset_idx} (true label: {class_names[image_label]})"
-        )
+        print(f"  Input image:  test set #{dataset_idx} (true label: {class_names[image_label]})")
     else:
         print(f"  Target class: {target_idx}")
         print(f"  Input image:  test set #{dataset_idx} (true label: {image_label})")
     print(f"  Theta:        {theta}")
-    ch_str = f"ON (alpha={channel_alpha})" if channel_mode else "OFF"
-    bl_str = f"ON (beta={block_beta})" if block_mode else "OFF"
+    ch_str = f"ON (alpha={channel_alpha})" if channel_alpha is not None else "OFF"
+    bl_str = f"ON (beta={block_beta})" if block_beta is not None else "OFF"
     print(f"  Channel mode: {ch_str}")
     print(f"  Block mode:   {bl_str}")
 
@@ -132,17 +128,13 @@ def print_neuron_table(neuron_contributions, model):
             ch_str = ""
 
         ratio = f"{100.0 * n_active / n_total:.1f}%" if n_total > 0 else "0.0%"
-        print(
-            f"  {name:<24} {contrib_val:>10.1f}  {neuron_str:>16}  {syn_str:>18}  {ch_str:>8}  {ratio:>6}"
-        )
+        print(f"  {name:<24} {contrib_val:>10.1f}  {neuron_str:>16}  {syn_str:>18}  {ch_str:>8}  {ratio:>6}")
 
     print("  " + "-" * (W - 2))
     total_neuron_str = f"{active_n:,}/{total_n:,}"
     total_syn_str = f"{active_s:,}/{total_s:,}"
     ratio = f"{100.0 * active_n / total_n:.1f}%" if total_n > 0 else "0.0%"
-    print(
-        f"  {'TOTAL':<24} {total_contrib:>10.1f}  {total_neuron_str:>16}  {total_syn_str:>18}  {'':>8}  {ratio:>6}"
-    )
+    print(f"  {'TOTAL':<24} {total_contrib:>10.1f}  {total_neuron_str:>16}  {total_syn_str:>18}  {'':>8}  {ratio:>6}")
 
 
 def print_block_analysis(forward_result, backward_result, neuron_contributions):

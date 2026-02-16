@@ -14,35 +14,40 @@ BATCH_SIZE = 128
 
 # Maps model name to dataset and output path
 MODELS = {
-    "lenet":        ("mnist",    "pretrained/profiles/mnist_lenet.pt"),
-    "resnet-cifar": ("cifar10",  "pretrained/profiles/cifar10_resnet-cifar.pt"),
-    "resnet18":     ("imagenet", "pretrained/profiles/imagenet_resnet18.pt"),
-    "resnet34":     ("imagenet", "pretrained/profiles/imagenet_resnet34.pt"),
-    "resnet50":     ("imagenet", "pretrained/profiles/imagenet_resnet50.pt"),
-    "resnet101":    ("imagenet", "pretrained/profiles/imagenet_resnet101.pt"),
+    "resnet-cifar": ("cifar10", "pretrained/profiles/cifar10_resnet-cifar.pt"),
+    "resnet18": ("imagenet", "pretrained/profiles/imagenet_resnet18.pt"),
+    "resnet34": ("imagenet", "pretrained/profiles/imagenet_resnet34.pt"),
+    "resnet50": ("imagenet", "pretrained/profiles/imagenet_resnet50.pt"),
+    "resnet101": ("imagenet", "pretrained/profiles/imagenet_resnet101.pt"),
 }
 
 
 def build_loader(dataset_name, batch_size):
     if dataset_name == "mnist":
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (0.3081,)),
-        ])
+        transform = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize((0.1307,), (0.3081,)),
+            ]
+        )
         dataset = datasets.MNIST(root="data", train=True, download=True, transform=transform)
     elif dataset_name == "cifar10":
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-        ])
+        transform = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+            ]
+        )
         dataset = datasets.CIFAR10(root="data", train=True, download=True, transform=transform)
     elif dataset_name == "imagenet":
-        transform = transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-        ])
+        transform = transforms.Compose(
+            [
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+            ]
+        )
         dataset = datasets.ImageFolder(root="data/imagenet/val", transform=transform)
     else:
         raise ValueError(f"Unknown dataset: {dataset_name}")

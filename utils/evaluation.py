@@ -20,9 +20,7 @@ def compute_single_slice(
     model_name,
     profile_path,
     theta,
-    channel_mode,
     channel_alpha,
-    block_mode,
     block_beta,
 ):
     """Compute slice for a single image (multiprocessing worker)."""
@@ -36,24 +34,18 @@ def compute_single_slice(
         model=model,
         input_sample=image.unsqueeze(0).to(device),
         precomputed_profile=profile,
-        debug=False,
     )
     slicer.profile()
     slicer.forward()
     slicer.backward(
         target_index=label,
         theta=theta,
-        channel_mode=channel_mode,
         channel_alpha=channel_alpha,
-        block_mode=block_mode,
         block_beta=block_beta,
     )
 
     return {
-        "contributions": {
-            k: v.cpu()
-            for k, v in slicer.backward_result["neuron_contributions"].items()
-        },
+        "contributions": {k: v.cpu() for k, v in slicer.backward_result["neuron_contributions"].items()},
         "total_blocks": slicer.backward_result["total_blocks"],
         "skipped_blocks": slicer.backward_result["skipped_blocks"],
     }
@@ -64,10 +56,8 @@ def compute_slices(
     model_name,
     profile_path,
     theta=0.3,
-    channel_mode=False,
-    channel_alpha=0.8,
-    block_mode=False,
-    block_beta=0.7,
+    channel_alpha=None,
+    block_beta=None,
     num_workers=4,
     desc="Slicing",
 ):
@@ -77,9 +67,7 @@ def compute_slices(
         model_name=model_name,
         profile_path=profile_path,
         theta=theta,
-        channel_mode=channel_mode,
         channel_alpha=channel_alpha,
-        block_mode=block_mode,
         block_beta=block_beta,
     )
 
@@ -143,9 +131,7 @@ def compute_slice_size(aggregated: Dict[str, torch.Tensor], model=None) -> float
     return active_channels / total_channels if total_channels > 0 else 0
 
 
-def evaluate_per_class(
-    model, dataset, device, num_classes=10, eval_samples: Optional[int] = None
-):
+def evaluate_per_class(model, dataset, device, num_classes=10, eval_samples: Optional[int] = None):
     """Single-pass evaluation returning per-class and overall accuracy.
 
     Args:
@@ -167,16 +153,12 @@ def evaluate_per_class(
                 total[cls] += mask.sum().item()
                 correct[cls] += (preds[mask] == cls).sum().item()
 
-    per_class = {
-        c: correct[c] / total[c] if total[c] > 0 else 0 for c in range(num_classes)
-    }
+    per_class = {c: correct[c] / total[c] if total[c] > 0 else 0 for c in range(num_classes)}
     overall = sum(correct) / sum(total) if sum(total) > 0 else 0
     return per_class, overall
 
 
-def evaluate_per_class_imagenette(
-    model, dataset, device, eval_samples: Optional[int] = None
-):
+def evaluate_per_class_imagenette(model, dataset, device, eval_samples: Optional[int] = None):
     """Evaluate a 1000-class ImageNet model on ImageNette (10 classes).
 
     Maps ImageNet predictions to local ImageNette indices before comparison.
@@ -201,8 +183,6 @@ def evaluate_per_class_imagenette(
                 total[cls] += mask.sum().item()
                 correct[cls] += (preds[mask] == cls).sum().item()
 
-    per_class = {
-        c: correct[c] / total[c] if total[c] > 0 else 0 for c in range(num_classes)
-    }
+    per_class = {c: correct[c] / total[c] if total[c] > 0 else 0 for c in range(num_classes)}
     overall = sum(correct) / sum(total) if sum(total) > 0 else 0
     return per_class, overall

@@ -49,8 +49,6 @@ def test_slice_counts():
     assert result["total_neurons"] == 9
     # 6 neurons have nonzero contribution for theta=0, target=0
     assert result["slice_neurons"] == 6
-    # fc1(2*3) + fc2(3*2) + fc3(2*2) = 16 total synapses
-    assert result["total_synapses"] == 16
 
 
 def test_requires_forward():

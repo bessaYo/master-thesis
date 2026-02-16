@@ -6,26 +6,31 @@ from pathlib import Path
 
 from models import get_model
 from utils.data import (
-    CIFAR10_CLASSES, IMAGENETTE_CLASSES,
-    load_cifar10, load_imagenet_val, load_imagenette, get_samples_for_classes,
+    CIFAR10_CLASSES,
+    IMAGENETTE_CLASSES,
+    load_cifar10,
+    load_imagenet_val,
+    load_imagenette,
+    get_samples_for_classes,
     imagenette_local_to_imagenet,
 )
 from utils.evaluation import (
-    compute_slices, aggregate_slices, compute_slice_size,
-    evaluate_per_class, evaluate_per_class_imagenette,
+    compute_slices,
+    aggregate_slices,
+    compute_slice_size,
+    evaluate_per_class,
+    evaluate_per_class_imagenette,
 )
 from utils.pruning import prune_model
 
 # --- Config ---
-MODEL_NAME = "resnet18"
-TARGET_CLASS = 3
+MODEL_NAME = "resnet_cifar"
+TARGET_CLASS = 9
 NUM_IMAGES = 10
 NUM_WORKERS = 4
 THETA = 0.3
-CHANNEL_MODE = True
-CHANNEL_ALPHA = 0.8
-BLOCK_MODE = True
-BLOCK_BETA = 0.7
+CHANNEL_ALPHA = 0.9
+BLOCK_BETA = 0.8
 EVAL_SAMPLES = 100  # samples per class for evaluation, None = full test set
 
 IMAGENET_MODELS = {"resnet18", "resnet34", "resnet50", "resnet101"}
@@ -66,9 +71,13 @@ if __name__ == "__main__":
     # Compute slices
     print("Computing slices...")
     slices = compute_slices(
-        samples, model_name=MODEL_NAME, profile_path=profile_path,
-        theta=THETA, channel_mode=CHANNEL_MODE, channel_alpha=CHANNEL_ALPHA,
-        block_mode=BLOCK_MODE, block_beta=BLOCK_BETA, num_workers=NUM_WORKERS,
+        samples,
+        model_name=MODEL_NAME,
+        profile_path=profile_path,
+        theta=THETA,
+        channel_alpha=CHANNEL_ALPHA,
+        block_beta=BLOCK_BETA,
+        num_workers=NUM_WORKERS,
     )
     aggregated = aggregate_slices(slices)
     slice_size = compute_slice_size(aggregated, model=model)
@@ -80,17 +89,23 @@ if __name__ == "__main__":
     if is_imagenet:
         pruned_per_class, pruned_overall = evaluate_per_class_imagenette(pruned_model, test_set, device, eval_samples=EVAL_SAMPLES)
     else:
-        pruned_per_class, pruned_overall = evaluate_per_class(pruned_model, test_set, device, num_classes=num_classes, eval_samples=EVAL_SAMPLES)
+        pruned_per_class, pruned_overall = evaluate_per_class(
+            pruned_model,
+            test_set,
+            device,
+            num_classes=num_classes,
+            eval_samples=EVAL_SAMPLES,
+        )
 
     # Print summary
     non_target = [c for c in range(num_classes) if c != TARGET_CLASS]
     base_nontarget = sum(base_per_class[c] for c in non_target) / len(non_target)
     pruned_nontarget = sum(pruned_per_class[c] for c in non_target) / len(non_target)
 
-    print(f"\nSlice size: {100*slice_size:.1f}%")
-    print(f"Target:     {100*pruned_per_class[TARGET_CLASS]:.1f}% (baseline: {100*base_per_class[TARGET_CLASS]:.1f}%)")
-    print(f"Non-target: {100*pruned_nontarget:.1f}% (baseline: {100*base_nontarget:.1f}%)")
-    print(f"Overall:    {100*pruned_overall:.1f}% (baseline: {100*base_overall:.1f}%)")
+    print(f"\nSlice size: {100 * slice_size:.1f}%")
+    print(f"Target:     {100 * pruned_per_class[TARGET_CLASS]:.1f}% (baseline: {100 * base_per_class[TARGET_CLASS]:.1f}%)")
+    print(f"Non-target: {100 * pruned_nontarget:.1f}% (baseline: {100 * base_nontarget:.1f}%)")
+    print(f"Overall:    {100 * pruned_overall:.1f}% (baseline: {100 * base_overall:.1f}%)")
 
     # Save results
     output_dir = Path("evaluation/results/channel_pruning")
@@ -98,6 +113,16 @@ if __name__ == "__main__":
     output_path = output_dir / f"channel_pruning_{MODEL_NAME}_class{TARGET_CLASS}.json"
 
     result = {
+        "config": {
+            "model": MODEL_NAME,
+            "target_class": TARGET_CLASS,
+            "target_class_name": class_names[TARGET_CLASS],
+            "num_images": NUM_IMAGES,
+            "theta": THETA,
+            "channel_alpha": CHANNEL_ALPHA,
+            "block_beta": BLOCK_BETA,
+            "eval_samples": EVAL_SAMPLES,
+        },
         "slice_size": round(slice_size, 4),
         "baseline": {
             "target": round(base_per_class[TARGET_CLASS], 4),

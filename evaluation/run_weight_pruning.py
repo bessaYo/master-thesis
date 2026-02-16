@@ -11,7 +11,7 @@ from utils.evaluation import compute_slices, aggregate_slices, evaluate_per_clas
 from utils.pruning import get_weight_contributions, prune_by_ratio, prune_random
 
 # --- Config ---
-MODEL_NAME = "resnet-cifar"
+MODEL_NAME = "resnet_cifar"
 TARGET_CLASS = 3
 NUM_IMAGES = 10
 NUM_WORKERS = 6
@@ -34,22 +34,34 @@ if __name__ == "__main__":
     # Baseline
     base_per_class, base_overall = evaluate_per_class(model, test_set, device, num_classes=10, eval_samples=EVAL_SAMPLES)
     base_target = base_per_class[TARGET_CLASS]
-    print(f"Baseline: {100*base_target:.1f}%")
+    print(f"Baseline: {100 * base_target:.1f}%")
 
     # Slices for target class
     print("Computing target slices...")
     target_samples = get_samples_for_classes(train_set, [TARGET_CLASS], NUM_IMAGES)
-    target_agg = aggregate_slices(compute_slices(
-        target_samples, MODEL_NAME, profile_path, THETA, num_workers=NUM_WORKERS,
-    ))
+    target_agg = aggregate_slices(
+        compute_slices(
+            target_samples,
+            MODEL_NAME,
+            profile_path,
+            THETA,
+            num_workers=NUM_WORKERS,
+        )
+    )
     target_contribs, weight_map, total_weights = get_weight_contributions(target_agg, model)
 
     # Slices for all classes
     print("Computing all-class slices...")
     all_samples = get_samples_for_classes(train_set, list(range(10)), NUM_IMAGES)
-    all_agg = aggregate_slices(compute_slices(
-        all_samples, MODEL_NAME, profile_path, THETA, num_workers=NUM_WORKERS,
-    ))
+    all_agg = aggregate_slices(
+        compute_slices(
+            all_samples,
+            MODEL_NAME,
+            profile_path,
+            THETA,
+            num_workers=NUM_WORKERS,
+        )
+    )
     all_contribs, _, _ = get_weight_contributions(all_agg, model)
 
     # Evaluate at each ratio
@@ -61,42 +73,61 @@ if __name__ == "__main__":
         # Targeted pruning
         pc_t, _ = evaluate_per_class(
             prune_by_ratio(model, target_contribs, weight_map, ratio, device),
-            test_set, device, num_classes=10, eval_samples=EVAL_SAMPLES,
+            test_set,
+            device,
+            num_classes=10,
+            eval_samples=EVAL_SAMPLES,
         )
         results_targeted.append(round(pc_t[TARGET_CLASS], 4))
-        print(f"  Targeted: {100*pc_t[TARGET_CLASS]:.1f}%")
+        print(f"  Targeted: {100 * pc_t[TARGET_CLASS]:.1f}%")
 
         # All-class pruning
         pc_a, _ = evaluate_per_class(
             prune_by_ratio(model, all_contribs, weight_map, ratio, device),
-            test_set, device, num_classes=10, eval_samples=EVAL_SAMPLES,
+            test_set,
+            device,
+            num_classes=10,
+            eval_samples=EVAL_SAMPLES,
         )
         results_all.append(round(pc_a[TARGET_CLASS], 4))
-        print(f"  All:      {100*pc_a[TARGET_CLASS]:.1f}%")
+        print(f"  All:      {100 * pc_a[TARGET_CLASS]:.1f}%")
 
         # Random pruning (averaged over seeds)
         rand_accs = []
         for seed in range(RANDOM_SEEDS):
             pc_r, _ = evaluate_per_class(
                 prune_random(model, weight_map, ratio, device, seed),
-                test_set, device, num_classes=10, eval_samples=EVAL_SAMPLES,
+                test_set,
+                device,
+                num_classes=10,
+                eval_samples=EVAL_SAMPLES,
             )
             rand_accs.append(pc_r[TARGET_CLASS])
         results_random.append(round(float(np.mean(rand_accs)), 4))
-        print(f"  Random:   {100*np.mean(rand_accs):.1f}%")
+        print(f"  Random:   {100 * np.mean(rand_accs):.1f}%")
 
     # Save results
     output_dir = Path("evaluation/results/weight_pruning")
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"weight_pruning_{MODEL_NAME}_class{TARGET_CLASS}.json"
 
+    output = {
+        "config": {
+            "model": MODEL_NAME,
+            "target_class": TARGET_CLASS,
+            "target_class_name": CIFAR10_CLASSES[TARGET_CLASS],
+            "num_images": NUM_IMAGES,
+            "theta": THETA,
+            "random_seeds": RANDOM_SEEDS,
+        },
+        "baseline": round(base_target, 4),
+        "prune_ratios": PRUNE_RATIOS,
+        "targeted": results_targeted,
+        "all_classes": results_all,
+        "random": results_random,
+    }
+
     with open(output_path, "w") as f:
-        json.dump({
-            "baseline": round(base_target, 4),
-            "prune_ratios": PRUNE_RATIOS,
-            "targeted": results_targeted,
-            "all_classes": results_all,
-            "random": results_random,
-        }, f, indent=2)
+        json.dump(output, f, indent=2)
 
     print(f"\nResults saved to {output_path}")

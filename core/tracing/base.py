@@ -38,7 +38,7 @@ class BaseAnalyzer:
             if isinstance(module, BLOCK_TYPES):
                 self.blocks[name] = []
 
-        # Add layers to block based on name prefix matching 
+        # Add layers to block based on name prefix matching
         for block_name in self.blocks:
             for layer_name in layer_keys:
                 if layer_name.startswith(block_name + "."):

@@ -8,33 +8,57 @@ from typing import List
 
 MNIST_CLASSES = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
 
-CIFAR10_CLASSES = ["airplane", "automobile", "bird", "cat", "deer",
-                   "dog", "frog", "horse", "ship", "truck"]
+CIFAR10_CLASSES = [
+    "airplane",
+    "automobile",
+    "bird",
+    "cat",
+    "deer",
+    "dog",
+    "frog",
+    "horse",
+    "ship",
+    "truck",
+]
 
 IMAGENETTE_CLASSES = [
-    "tench", "English springer", "cassette player", "chain saw", "church",
-    "French horn", "garbage truck", "gas pump", "golf ball", "parachute",
+    "tench",
+    "English springer",
+    "cassette player",
+    "chain saw",
+    "church",
+    "French horn",
+    "garbage truck",
+    "gas pump",
+    "golf ball",
+    "parachute",
 ]
 
 
 # mean/std computed over the training sets (values from PyTorch)
-MNIST_TRANSFORM = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.1307,), (0.3081,)),
-])
+MNIST_TRANSFORM = transforms.Compose(
+    [
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,)),
+    ]
+)
 
-CIFAR10_TRANSFORM = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-])
+CIFAR10_TRANSFORM = transforms.Compose(
+    [
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    ]
+)
 
 # ImageNet preprocessing used by torchvision pretrained models
-IMAGENET_TRANSFORM = transforms.Compose([
-    transforms.Resize(256),
-    transforms.CenterCrop(224),
-    transforms.ToTensor(),
-    transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-])
+IMAGENET_TRANSFORM = transforms.Compose(
+    [
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+    ]
+)
 
 IMAGENETTE_TRANSFORM = IMAGENET_TRANSFORM  # same preprocessing
 
@@ -49,11 +73,11 @@ def imagenette_local_to_imagenet(local_idx):
 
 
 def load_mnist(train: bool = False):
-    return datasets.MNIST(root='data', train=train, transform=MNIST_TRANSFORM, download=True)
+    return datasets.MNIST(root="data", train=train, transform=MNIST_TRANSFORM, download=True)
 
 
 def load_cifar10(train: bool = False):
-    return datasets.CIFAR10(root='data', train=train, transform=CIFAR10_TRANSFORM, download=True)
+    return datasets.CIFAR10(root="data", train=train, transform=CIFAR10_TRANSFORM, download=True)
 
 
 def load_imagenet_val():

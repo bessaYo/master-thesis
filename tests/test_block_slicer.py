@@ -9,7 +9,7 @@ def test_channel_slicer_keeps_top_channels():
     """Alpha=0.8 should keep the channels that explain 80% of energy"""
     slicer = ChannelSlicer(alpha=0.8)
     # Energies: [10, 1, 1, 1, 1] -> total=14, 80%=11.2
-    # Cumsum sorted: 10, 11, 12 -> cutoff at index 2, so 3 channels
+    # Sorted: 10, 11, 12 -> cutoff at index 2, so 3 channels
     deltas = torch.tensor([10.0, 1.0, 1.0, 1.0, 1.0])
     mask = slicer.get_active_mask(deltas)
 
@@ -30,7 +30,11 @@ def test_block_slicer_skips_low_energy():
     """Blocks below the energy threshold should be skipped"""
     slicer = BlockSlicer(alpha=0.9)
     block_deltas = {"layer1.0": 10.0, "layer1.1": 1.0, "layer2.0": 0.5}
-    blocks = {"layer1.0": ["layer1.0.conv1"], "layer1.1": ["layer1.1.conv1"], "layer2.0": ["layer2.0.conv1"]}
+    blocks = {
+        "layer1.0": ["layer1.0.conv1"],
+        "layer1.1": ["layer1.1.conv1"],
+        "layer2.0": ["layer2.0.conv1"],
+    }
 
     skipped = slicer.identify_skip_blocks(block_deltas, blocks)
 

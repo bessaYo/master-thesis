@@ -18,7 +18,7 @@ class ForwardAnalyzer(BaseAnalyzer):
         self.channel_means = profiler_result["channel_means"]
 
         self.activations = {}
-        self.pool_indices = {}
+        self.pool_inputs = {}
         self.neuron_deltas = {}
         self.layer_deltas = {}
         self.channel_deltas = {}
@@ -27,13 +27,10 @@ class ForwardAnalyzer(BaseAnalyzer):
     # Register forward hook for each layer to collect activation information
     def _hook_fn(self, layer_name):
         def hook(module, input, output):
-            # Maxpool instances return tuple (output, indices) special case here
-            if isinstance(module, nn.MaxPool2d) and module.return_indices:
-                pooled, indices = output
-                self.activations[layer_name] = pooled.detach()
-                self.pool_indices[layer_name] = indices.detach()
-            else:
-                self.activations[layer_name] = output.detach()
+            self.activations[layer_name] = output.detach()
+            # Store input activation for maxpool layers (needed for pool_indices in backward)
+            if isinstance(module, nn.MaxPool2d):
+                self.pool_inputs[layer_name] = input[0].detach()
 
         return hook
 
@@ -111,19 +108,19 @@ class ForwardAnalyzer(BaseAnalyzer):
 
         return {
             "activations": self.activations,
+            "pool_inputs": self.pool_inputs,
             "neuron_deltas": self.neuron_deltas,
             "layer_deltas": self.layer_deltas,
             "channel_deltas": self.channel_deltas,
             "block_deltas": self.block_deltas,
             "blocks": self.blocks,
-            "pool_indices": self.pool_indices,
         }
 
     def _reset_stats(self):
         self.activations = {}
+        self.pool_inputs = {}
         self.neuron_deltas = {}
         self.layer_deltas = {}
         self.channel_deltas = {}
         self.block_deltas = {}
         self.blocks = {}
-        self.pool_indices = {}

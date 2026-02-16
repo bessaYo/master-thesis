@@ -26,10 +26,6 @@ class Profiler(BaseAnalyzer):
     # Register forward hook for each layer to collect activation information
     def _hook_fn(self, layer_name):
         def hook(module, input, output):
-            # Maxpool instances return tuple (output, indices) special case here
-            if isinstance(module, nn.MaxPool2d) and module.return_indices:
-                output = output[0]
-
             # Sum over batch dimension to get total activation for this layer
             batch_size = output.size(0)
             batch_sum = output.sum(dim=0)

@@ -2,7 +2,6 @@
 
 import torch
 
-from .lenet import LeNet
 from .simple import PaperNN, SimpleCNN
 from .resnet import ResNet_CIFAR
 from .imagenet import IMAGENET_MODELS, load_resnet
@@ -14,12 +13,9 @@ def get_model(name, pretrained=False):
     if name in IMAGENET_MODELS:
         return load_resnet(name, pretrained=pretrained)
 
-    if name == "resnet-cifar":
+    if name == "resnet_cifar":
         model = ResNet_CIFAR()
-        path = "pretrained/checkpoints/resnet-cifar_cifar10.pt"
-    elif name == "lenet":
-        model = LeNet()
-        path = "pretrained/checkpoints/lenet_mnist.pt"
+        path = "pretrained/checkpoints/resnet_cifar10.pt"
     else:
         raise ValueError(f"Unknown model: {name}")
 

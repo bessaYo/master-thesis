@@ -101,8 +101,6 @@ def prune_random(model, weight_map, ratio, device, seed=0):
             n = end - start
             mask = np.ones(n, dtype=np.float32)
             mask[rng.choice(n, size=int(n * ratio), replace=False)] = 0.0
-            module.weight.data *= (
-                torch.from_numpy(mask).reshape(module.weight.shape).to(device)
-            )
+            module.weight.data *= torch.from_numpy(mask).reshape(module.weight.shape).to(device)
 
     return pruned
