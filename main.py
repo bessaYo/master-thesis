@@ -1,13 +1,13 @@
 """
 Runs a single slice and prints a detailed report
 
-Usage:
+Usage Examples:
     python main.py --model resnet-cifar --target 0
     python main.py --model resnet18 --target 0 --channel_alpha 0.8
+    python main.py --model resnet34 --target 0 --channel_alpha 0.8 --block_beta 0.8
 """
 
 import argparse
-
 import torch
 
 from models import get_model
@@ -32,7 +32,7 @@ def main():
         type=str,
         required=True,
         choices=[
-            "resnet-cifar",
+            "resnet_cifar",
             "resnet18",
             "resnet34",
             "resnet50",
@@ -55,10 +55,10 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Dataset and class names per model
-    if args.model == "resnet-cifar":
+    if args.model == "resnet_cifar":
         dataset = load_cifar10(train=False)
         class_names = CIFAR10_CLASSES
-        profile_path = "pretrained/profiles/cifar10_resnet-cifar.pt"
+        profile_path = "pretrained/profiles/cifar10_resnet_cifar.pt"
         dataset_name = "cifar10"
     elif args.model in ("resnet18", "resnet34", "resnet50", "resnet101"):
         dataset = load_imagenet_val()

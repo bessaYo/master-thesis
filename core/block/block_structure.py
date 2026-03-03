@@ -1,4 +1,4 @@
-# core/blocks/block_structure.py
+# core/block/block_structure.py
 
 
 class BlockStructureAnalyzer:
@@ -7,10 +7,9 @@ class BlockStructureAnalyzer:
     SHORTCUT_PATTERNS = ["shortcut", "downsample", "skip", "projection"]
     MAIN_PATH_END_PATTERNS = ["bn2", "bn3", "norm2", "norm3"]
 
-    def __init__(self, graph, blocks, debug=False):
+    def __init__(self, graph, blocks):
         self.graph = graph
         self.blocks = blocks
-        self.debug = debug
 
         self.block_info = {}
         self.add_to_block = {}
@@ -25,9 +24,6 @@ class BlockStructureAnalyzer:
                 self.block_info[block_name] = info
                 if info["add_node"]:
                     self.add_to_block[info["add_node"]] = block_name
-
-        if self.debug:
-            self._print_debug_info()
 
         return self.block_info, self.add_to_block
 
@@ -55,19 +51,20 @@ class BlockStructureAnalyzer:
 
     def _find_add_nodes(self):
         """Find all add nodes and their parent/child connections."""
-        add_nodes = {}
+        child_map = {}  # node -> list of child nodes
+        for node in self.graph.get_nodes():
+            for p in self.graph.get_parent_nodes(node):
+                child_map.setdefault(p, []).append(node)
 
+        add_nodes = {}
         for node in self.graph.get_nodes():
             if self.graph.get_type(node) == "add":
                 parents = []
                 for p in self.graph.get_parent_nodes(node):
                     actual = self.graph.skip_passthrough(p)
-                    parents.append(self.graph.key(actual))
+                    parents.append(self.graph.get_key(actual))
 
-                children = []
-                for other_node in self.graph.get_nodes():
-                    if node in self.graph.get_parent_nodes(other_node):
-                        children.append(self.graph.key(other_node))
+                children = [self.graph.get_key(c) for c in child_map.get(node, [])]
 
                 add_nodes[node.name] = {
                     "parents": parents,
@@ -87,7 +84,7 @@ class BlockStructureAnalyzer:
             parents = add_info["parents"]
 
             block_parent = None
-            external_parent = None
+            shortcut_parent = None
 
             for parent in parents:
                 if self._belongs_to_block(parent, block_name):
@@ -152,13 +149,3 @@ class BlockStructureAnalyzer:
     def _is_shortcut_layer(self, layer_name):
         """Check if layer is part of shortcut connection."""
         return any(p in layer_name.lower() for p in self.SHORTCUT_PATTERNS)
-
-    def _print_debug_info(self):
-        """Print analyzed block structure for debugging."""
-        print("[DEBUG] Analyzed block structure:")
-        for block_name, info in self.block_info.items():
-            print(f"  {block_name}:")
-            print(f"    add_node: {info['add_node']}")
-            print(f"    main_path_end: {info['main_path_end']}")
-            print(f"    shortcut_input: {info['shortcut_input']}")
-            print(f"    post_add_node: {info['post_add_node']}")

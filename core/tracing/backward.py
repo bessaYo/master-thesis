@@ -2,9 +2,8 @@
 
 import time
 import torch
-
 from core.tracing.operations import BackwardOperations
-from core.block.block_slicer import ChannelSlicer, BlockSlicer
+from core.block.filtering import ChannelSlicer, BlockSlicer
 from core.block.block_structure import BlockStructureAnalyzer
 
 
@@ -33,16 +32,22 @@ class BackwardAnalyzer:
         self.skip_main_path_nodes = set()
         self.backward_time = 0.0
 
-        # Output contribution sets
+        # Store contribution tensors for each node
         self.neuron_contributions = {}
-
-        self._init_block()
+        self.synapse_contributions = {}  
 
     def trace(self):
-        """Main entry point. Propagates backward contributions from target neuron"""
+        """Main entry point. Propagates backwards from node to node and calculates contributions"""
+        start = time.perf_counter()
+
+        # Identify blocks to skip based on block energy
+        self._init_block()
         skip_blocks = self.block_slicer.get_skip_blocks() if self.block_slicer else set()
 
-        start = time.perf_counter()
+        # Compute channel masks -> channels we want to keep, zero out rest
+        if self.channel_slicer and self.channel_deltas:
+            self.channel_slicer.compute_active_channels(self.channel_deltas)
+
         with torch.no_grad():
             self._init_contributions()
 
@@ -60,6 +65,7 @@ class BackwardAnalyzer:
         delta_n = self._get_delta(node)
 
         # Calculate contribution for each parent
+        contribs = []
         for parent in self._get_parents(node, skip_blocks, CONTRIB_n):
             parent_key = self.graph.get_key(parent)
             delta_i = self._get_delta(parent)
@@ -70,6 +76,8 @@ class BackwardAnalyzer:
 
             # Accumulate contribution
             self.neuron_contributions[parent_key] += contrib
+            contribs.append(contrib)
+
 
     # Apply backward operation based on node type
     def _compute_contribution(self, node, CONTRIB_n, delta_n, delta_i):
@@ -79,12 +87,25 @@ class BackwardAnalyzer:
         if node_type == "linear":
             module = self.graph.get_module(node)
             activation_n = self.activations.get(node_key)
-            return self.ops.linear(module, CONTRIB_n, delta_n, delta_i, activation_n)
+            result = self.ops.linear(module, CONTRIB_n, delta_n, delta_i, activation_n)
+            # Store per-synapse (per-weight) contributions
+            if hasattr(self.ops, '_last_synapse_contrib'):
+                self.synapse_contributions[node_key] = self.ops._last_synapse_contrib
+            return result
 
         if node_type == "conv2d":
-            active_channels = self.channel_slicer.slice(node_key, CONTRIB_n, self.channel_deltas) if self.channel_slicer else None
+            # Channel slicing: zero out inactive channels before conv2d
+            if self.channel_slicer:
+                mask = self.channel_slicer.get_channel_mask(node_key)
+                if mask is not None:
+                    self.neuron_contributions[node_key][:, ~mask] = 0
             module = self.graph.get_module(node)
-            return self.ops.conv2d(module, CONTRIB_n, delta_n, delta_i, active_channels)
+            activation_n = self.activations.get(node_key)
+            result = self.ops.conv2d(module, CONTRIB_n, delta_n, delta_i, activation_n)
+            # Store per-synapse (per-weight) contributions
+            if hasattr(self.ops, '_last_synapse_contrib'):
+                self.synapse_contributions[node_key] = self.ops._last_synapse_contrib
+            return result
 
         if node_type == "batchnorm2d":
             return self.ops.batchnorm2d(CONTRIB_n, delta_n, delta_i)
@@ -127,6 +148,12 @@ class BackwardAnalyzer:
 
     # Get parent nodes for a given node
     def _get_parents(self, node, skip_blocks, CONTRIB_n):
+        node_type = self.graph.get_type(node)
+
+        # Add nodes need skipblock filtering on their own parents
+        if node_type == "add":
+            return self._get_add_parents(node, skip_blocks)
+
         parents = []
         for parent in self.graph.get_compute_parents(node):
             parent_type = self.graph.get_type(parent)
@@ -139,6 +166,21 @@ class BackwardAnalyzer:
             else:
                 parents.append(parent)
 
+        return parents
+
+    def _get_add_parents(self, add_node, skip_blocks):
+        """Get parents of an add node, skipping main path end if block is skipped."""
+        block = self.block_analyzer.get_block_for_add(add_node.name) if self.block_analyzer else None
+        block_skip = True if block and block in skip_blocks else False
+        main_path_end = self.block_analyzer.get_main_path_end(block) if block else None
+
+        parents = []
+        for parent in self.graph.get_parent_nodes(add_node):
+            parent = self.graph.skip_passthrough(parent)
+            parent_key = self.graph.get_key(parent)
+            if block_skip and parent_key == main_path_end:
+                continue
+            parents.append(parent)
         return parents
 
     # Special handling for add nodes. Skip parents along main path of a skipped block
@@ -213,7 +255,7 @@ class BackwardAnalyzer:
         elif self.neuron_contributions[last_key].dim() == 4:
             self.neuron_contributions[last_key][0, self.target_index, :, :] = 1.0
 
-    # Initiliaze block analyzer and identify blocks to skip
+    # Initialize block analyzer and identify blocks to skip
     def _init_block(self):
         if self.blocks:
             self.block_analyzer = BlockStructureAnalyzer(self.graph, self.blocks)

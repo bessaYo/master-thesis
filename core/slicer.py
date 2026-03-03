@@ -79,7 +79,8 @@ class Slicer:
 
     def _build_summary(self, analyzer, target_index, theta, channel_alpha, block_beta):
         """Build summary dict from backward analyzer results."""
-        total_neurons = sum(c.numel() for c in analyzer.neuron_contributions.values())
+        # Use neuron_deltas for total count (includes skipped blocks)
+        total_neurons = sum(d.numel() for d in analyzer.neuron_deltas.values())
         slice_neurons = sum((c != 0).sum().item() for c in analyzer.neuron_contributions.values())
 
         skip_blocks = []
@@ -88,6 +89,7 @@ class Slicer:
 
         return {
             "neuron_contributions": analyzer.neuron_contributions,
+            "synapse_contributions": analyzer.synapse_contributions,
             "backward_time": analyzer.backward_time,
             "total_neurons": total_neurons,
             "slice_neurons": slice_neurons,

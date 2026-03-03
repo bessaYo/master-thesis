@@ -1,6 +1,5 @@
 # core/tracing/base.py
 
-import torch.nn as nn
 from models.resnet import BasicBlock as CIFARBlock
 from models.imagenet import BasicBlock, Bottleneck
 

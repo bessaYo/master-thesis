@@ -1,50 +1,60 @@
+# core/tracing/operations.py
+
 import torch
 import torch.nn.functional as F
+
+from core.block.filtering import ThetaSlicer
 
 
 class BackwardOperations:
     """Defines contribution operations for different layer types / modules"""
 
     def __init__(self, theta=0.0):
+        self.theta_filter = ThetaSlicer(theta=theta)
         self.theta = theta
 
     def linear(self, module, CONTRIB_n, delta_n, delta_i, activation_n):
         """Backward contribution for linear layer"""
-        # Remove batch dimension for easier processing
-        delta_i = delta_i.squeeze(0)
-        CONTRIB_n = CONTRIB_n.squeeze(0)
-        delta_n = delta_n.squeeze(0)
-        activation_n = activation_n.squeeze(0)
+        original_shape = delta_i.shape
+
+        # Remove batch dimension and flatten for matrix operations
+        delta_i = delta_i.squeeze(0).flatten()
+        CONTRIB_n = CONTRIB_n.squeeze(0).flatten()
+        delta_n = delta_n.squeeze(0).flatten()
+        activation_n = activation_n.squeeze(0).flatten()
 
         # Step 1: Filter neurons by magnitude (weight * delta_i) with theta threshold
         weight = module.weight.detach()
         magnitude = weight * delta_i
-        keep_neurons = self._theta_filter(magnitude, activation_n)
+        if self.theta > 0:
+            keep_neurons = self.theta_filter.filter_linear(magnitude, activation_n)
+        else:
+            keep_neurons = torch.ones_like(magnitude, dtype=torch.bool)
 
         # Step 2: Compute local contribution for each input neuron, mask with keep_neurons
         active_outputs = (CONTRIB_n != 0).unsqueeze(1)
         local_contrib = CONTRIB_n.unsqueeze(1) * delta_n.unsqueeze(1) * magnitude
         local_contrib = torch.sign(local_contrib) * keep_neurons.float() * active_outputs.float()
 
+        # Synapse contributions: [out_features, in_features] — sign per weight
+        self._last_synapse_contrib = local_contrib.clone()
+
         # Step 3: For every input neuron, accumulate local contributions
         contrib = local_contrib.sum(dim=0)  # sum over output neurons → one value per input neuron
-        contrib.unsqueeze_(0)  # add batch dimension again
+
+        # Reshape to match original delta_i shape
+        contrib = contrib.reshape(original_shape)
 
         return contrib
 
-    def conv2d(self, module, CONTRIB_n, delta_n, delta_i, active_channels=None):
-        """Backward contribution for convolutional layer"""
+    def conv2d(self, module, CONTRIB_n, delta_n, delta_i, activation_n):
+        """Backward contribution for convolutional layer.
+        Channel filtering is handled upstream by zeroing inactive channels in CONTRIB_n."""
         # Get weights, kernel size, stride and padding from current module
         weight = module.weight.detach()  # [out_channels, in_channels, kH, kW]
         kernel_size = module.kernel_size
         stride = module.stride
         padding = module.padding
-
-        # If channel slicing is active, mask tensors to active channels only
-        if active_channels is not None:
-            weight = weight[active_channels]
-            CONTRIB_n = CONTRIB_n[:, active_channels]
-            delta_n = delta_n[:, active_channels]
 
         # Step 1: Create patches of each kernel window with unfold
         patches = F.unfold(delta_i, kernel_size, stride=stride, padding=padding)
@@ -53,7 +63,12 @@ class BackwardOperations:
         weight_flat = weight.flatten(1).unsqueeze(2)
         magnitude = weight_flat * patches
 
-        # Step 3: Compute local contributions
+        # Step 3: Apply theta filter per output channel
+        if self.theta > 0:
+            activation_n = activation_n.squeeze(0)  # [out_ch, H, W]
+            magnitude = self.theta_filter.filter_conv(magnitude, activation_n)
+
+        # Step 4: Compute local contributions
         CONTRIB_flat = CONTRIB_n.flatten(2).squeeze(0).unsqueeze(1)  # flatten spatial dims, expand for kernel broadcasting
         delta_n_flat = delta_n.flatten(2).squeeze(0).unsqueeze(1)
 
@@ -61,7 +76,12 @@ class BackwardOperations:
         local = CONTRIB_flat * delta_n_flat * magnitude
         local = torch.sign(local) * active.float()
 
-        # Step 4: Accumulate over output channels
+        # Synapse contributions: sum over spatial positions → [out_ch, in_ch*kH*kW]
+        # Then reshape to weight shape [out_ch, in_ch, kH, kW]
+        synapse_contrib = local.sum(dim=2)  # sum over spatial output positions
+        self._last_synapse_contrib = synapse_contrib.reshape(weight.shape)
+
+        # Step 5: Accumulate over output channels
         contrib = local.sum(dim=0).unsqueeze(0)  # sum over output channels, add batch dim
         contrib = F.fold(contrib, delta_i.shape[2:], kernel_size, stride=stride, padding=padding)
         return contrib
@@ -98,8 +118,8 @@ class BackwardOperations:
 
     def relu(self, activation, CONTRIB_n, delta_n, delta_i):
         """Backward contribution for ReLU activation layers"""
-        postive_activation = activation > 0
-        mask = postive_activation.float()
+        positive_activation = activation > 0
+        mask = positive_activation.float()
         return self._passthrough(CONTRIB_n, delta_n, delta_i * mask)
 
     def batchnorm2d(self, CONTRIB_n, delta_n, delta_i):
@@ -119,29 +139,3 @@ class BackwardOperations:
         """Generic passthrough contribution function"""
         local_contrib = CONTRIB_n * delta_n * delta_i
         return torch.sign(local_contrib)
-
-    def _theta_filter(self, magnitude, layer_activation):
-        """Filter neurons with low magnitude impact based on theta threshold"""
-        if self.theta <= 0:
-            return torch.ones_like(magnitude, dtype=torch.bool)
-
-        output_neurons, input_neurons = magnitude.shape
-        keep = torch.ones_like(magnitude, dtype=torch.bool)
-
-        for neuron in range(output_neurons):
-            output = layer_activation[neuron].abs()
-
-            # Sort by ascending magnitude
-            sorted_mag, sorted_idx = magnitude[neuron].abs().sort()
-            cumsum = magnitude[neuron][sorted_idx].cumsum(dim=0)
-
-            # Find cutoff where cumsum reaches theta
-            ratio = cumsum.abs() / output
-            cutoff = (ratio >= self.theta).long().argmax()
-
-            if not (ratio >= self.theta).any():
-                keep[neuron] = False  # remove all if nothing meets threshold
-            else:
-                keep[neuron, sorted_idx[:cutoff]] = False  # remove neurons below cutoff
-
-        return keep

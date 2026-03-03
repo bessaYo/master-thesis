@@ -2,13 +2,12 @@
 
 import torch
 
-from .simple import PaperNN, SimpleCNN
 from .resnet import ResNet_CIFAR
 from .imagenet import IMAGENET_MODELS, load_resnet
 
 
 def get_model(name, pretrained=False):
-    """Get a model by name, optionally loading pretrained weights."""
+    """Get a model by name. Optionally with pretrained weights"""
 
     if name in IMAGENET_MODELS:
         return load_resnet(name, pretrained=pretrained)

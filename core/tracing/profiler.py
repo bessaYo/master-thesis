@@ -46,7 +46,7 @@ class Profiler(BaseAnalyzer):
             self.input_sum += batch.sum(dim=0)
             self.input_count += batch.size(0)
 
-            self.neuron_means["input"] = self.input_sum / self.input_count
+        self.neuron_means["input"] = self.input_sum / self.input_count
 
     # Compute mean for each neuron by dividing total sum of activations by count of samples
     def _compute_neuron_mean(self):
@@ -121,10 +121,8 @@ class Profiler(BaseAnalyzer):
     def _reset_stats(self):
         self.input_sum = 0.0
         self.input_count = 0
-
         self.activation_sums = {}
         self.activation_counts = {}
-
         self.neuron_means = {}
         self.channel_means = {}
         self.layer_means = {}
