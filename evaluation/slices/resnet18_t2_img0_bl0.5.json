@@ -1,0 +1,23 @@
+{
+  "config": {
+    "model": "resnet18",
+    "dataset": "imagenet",
+    "target_class": 2,
+    "target_class_name": "2",
+    "image_index": 0,
+    "theta": 0.3,
+    "channel_alpha": null,
+    "block_beta": 0.5
+  },
+  "results": {
+    "backward_time": 0.5985,
+    "total_neurons": 2635240,
+    "slice_neurons": 378007,
+    "neurons_pct": 14.3,
+    "total_synapses": 1814073344,
+    "slice_synapses": 105746420,
+    "synapses_pct": 5.8,
+    "total_blocks": 8,
+    "skipped_blocks": 5
+  }
+}
