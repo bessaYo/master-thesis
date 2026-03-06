@@ -1,18 +1,14 @@
-# utils/evaluation.py
-
-"""Slicing and evaluation utilities for evaluation scripts"""
-
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from typing import List, Dict, Optional
+from collections import defaultdict
 from tqdm import tqdm
 from multiprocessing import Pool
 from functools import partial
 
 from models import get_model
 from core.slicer import Slicer
-from utils.data import IMAGENETTE_TO_IMAGENET, stratified_subset
 
 
 def compute_single_slice(
@@ -23,7 +19,7 @@ def compute_single_slice(
     channel_alpha,
     block_beta,
 ):
-    """Compute slice for a single image (multiprocessing worker)."""
+    """Compute slice for a single image."""
     image, label, idx = sample_data
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -46,6 +42,7 @@ def compute_single_slice(
 
     return {
         "contributions": {k: v.cpu() for k, v in slicer.backward_result["neuron_contributions"].items()},
+        "synapse_contributions": {k: v.cpu() for k, v in slicer.backward_result["synapse_contributions"].items()},
         "total_blocks": slicer.backward_result["total_blocks"],
         "skipped_blocks": slicer.backward_result["skipped_blocks"],
     }
@@ -61,7 +58,7 @@ def compute_slices(
     num_workers=4,
     desc="Slicing",
 ):
-    """Compute slices in parallel."""
+    """Compute slices for multiple samples in parallel."""
     worker_fn = partial(
         compute_single_slice,
         model_name=model_name,
@@ -84,11 +81,7 @@ def compute_slices(
 
 
 def aggregate_slices(slices: List[Dict]) -> Dict[str, torch.Tensor]:
-    """Aggregate slices via union: sum of absolute contributions.
-
-    Handles slices with different key sets (e.g. from block filtering)
-    by treating missing keys as zero contributions.
-    """
+    """Aggregate multiple slices via union (sum of abs contributions)."""
     contributions = [s["contributions"] for s in slices]
     all_keys = set()
     for c in contributions:
@@ -102,12 +95,22 @@ def aggregate_slices(slices: List[Dict]) -> Dict[str, torch.Tensor]:
     return aggregated
 
 
-def compute_slice_size(aggregated: Dict[str, torch.Tensor], model=None) -> float:
-    """Fraction of active channels in aggregated slice.
+def aggregate_synapse_contribs(slices: List[Dict]) -> Dict[str, torch.Tensor]:
+    """Aggregate synapse contributions via union (sum of abs contributions)."""
+    all_keys = set()
+    for s in slices:
+        all_keys.update(s["synapse_contributions"].keys())
 
-    If model is provided, counts all conv layers (including those not in
-    aggregated, e.g. skipped blocks) as having zero active channels.
-    """
+    aggregated = {}
+    for key in all_keys:
+        tensors = [s["synapse_contributions"][key].float() for s in slices if key in s["synapse_contributions"]]
+        stacked = torch.stack(tensors)
+        aggregated[key] = stacked.abs().sum(dim=0)
+    return aggregated
+
+
+def compute_slice_size(aggregated: Dict[str, torch.Tensor], model=None) -> float:
+    """Fraction of active channels in the aggregated slice."""
     total_channels = 0
     active_channels = 0
 
@@ -132,14 +135,18 @@ def compute_slice_size(aggregated: Dict[str, torch.Tensor], model=None) -> float
 
 
 def evaluate_per_class(model, dataset, device, num_classes=10, eval_samples: Optional[int] = None):
-    """Single-pass evaluation returning per-class and overall accuracy.
-
-    Args:
-        eval_samples: If set, evaluate on at most this many samples per class
-                      instead of the full dataset.
-    """
+    """Evaluate per-class and overall accuracy"""
     if eval_samples is not None:
-        dataset = stratified_subset(dataset, num_classes, eval_samples)
+        counts = defaultdict(int)
+        indices = []
+        for idx in range(len(dataset)):
+            _, label = dataset[idx]
+            if counts[label] < eval_samples:
+                indices.append(idx)
+                counts[label] += 1
+            if all(counts[c] >= eval_samples for c in range(num_classes)):
+                break
+        dataset = Subset(dataset, indices)
     loader = DataLoader(dataset, batch_size=128, shuffle=False)
     correct = [0] * num_classes
     total = [0] * num_classes
@@ -148,36 +155,6 @@ def evaluate_per_class(model, dataset, device, num_classes=10, eval_samples: Opt
     with torch.no_grad():
         for x, y in loader:
             preds = model(x.to(device)).argmax(1).cpu()
-            for cls in range(num_classes):
-                mask = y == cls
-                total[cls] += mask.sum().item()
-                correct[cls] += (preds[mask] == cls).sum().item()
-
-    per_class = {c: correct[c] / total[c] if total[c] > 0 else 0 for c in range(num_classes)}
-    overall = sum(correct) / sum(total) if sum(total) > 0 else 0
-    return per_class, overall
-
-
-def evaluate_per_class_imagenette(model, dataset, device, eval_samples: Optional[int] = None):
-    """Evaluate a 1000-class ImageNet model on ImageNette (10 classes).
-
-    Maps ImageNet predictions to local ImageNette indices before comparison.
-    """
-    num_classes = 10
-    if eval_samples is not None:
-        dataset = stratified_subset(dataset, num_classes, eval_samples)
-    loader = DataLoader(dataset, batch_size=64, shuffle=False)
-    imagenet_indices = IMAGENETTE_TO_IMAGENET
-    correct = [0] * num_classes
-    total = [0] * num_classes
-
-    model.eval()
-    with torch.no_grad():
-        for x, y in loader:
-            logits = model(x.to(device)).cpu()
-            # Only look at the 10 ImageNette logits
-            imagenette_logits = logits[:, imagenet_indices]
-            preds = imagenette_logits.argmax(1)
             for cls in range(num_classes):
                 mask = y == cls
                 total[cls] += mask.sum().item()

@@ -1,12 +1,8 @@
-# utils/report.py
-
 import torch.nn as nn
-
-W = 100  # report width
 
 
 def compute_layer_synapses(model, neuron_contributions):
-    """Compute per-layer synapse counts"""
+    """Compute per layer synapse counts"""
     modules = {name: mod for name, mod in model.named_modules()}
     layer_synapses = {}
 
@@ -62,9 +58,9 @@ def print_header(
     block_beta,
 ):
     total_params = sum(p.numel() for p in model.parameters())
-    print("=" * W)
+    print("=" * 100)
     print("SLICING REPORT")
-    print("=" * W)
+    print("=" * 100)
     print(f"  Model:        {model_name} ({total_params:,} params)")
     print(f"  Dataset:      {dataset_name.upper()}")
     if class_names:
@@ -82,9 +78,9 @@ def print_header(
 
 def print_neuron_table(neuron_contributions, model):
     print()
-    print("-" * W)
+    print("-" * 100)
     print("LAYER-BY-LAYER CONTRIBUTIONS")
-    print("-" * W)
+    print("-" * 100)
 
     modules = {name: mod for name, mod in model.named_modules()}
     compute_layers = {}
@@ -97,7 +93,7 @@ def print_neuron_table(neuron_contributions, model):
 
     header = f"  {'Layer':<24} {'|Contrib|':>10}  {'Neurons':>16}  {'Synapses':>18}  {'Channels':>8}  {'Ratio':>6}"
     print(header)
-    print("  " + "-" * (W - 2))
+    print("  " + "-" * 98)
 
     total_n = 0
     active_n = 0
@@ -130,7 +126,7 @@ def print_neuron_table(neuron_contributions, model):
         ratio = f"{100.0 * n_active / n_total:.1f}%" if n_total > 0 else "0.0%"
         print(f"  {name:<24} {contrib_val:>10.1f}  {neuron_str:>16}  {syn_str:>18}  {ch_str:>8}  {ratio:>6}")
 
-    print("  " + "-" * (W - 2))
+    print("  " + "-" * 98)
     total_neuron_str = f"{active_n:,}/{total_n:,}"
     total_syn_str = f"{active_s:,}/{total_s:,}"
     ratio = f"{100.0 * active_n / total_n:.1f}%" if total_n > 0 else "0.0%"
@@ -147,13 +143,13 @@ def print_block_analysis(forward_result, backward_result, neuron_contributions):
     total = backward_result.get("total_blocks", 0)
 
     print()
-    print("-" * W)
+    print("-" * 100)
     print("BLOCK ANALYSIS")
-    print("-" * W)
+    print("-" * 100)
 
     header = f"  {'Block':<24} {'Delta':>8}  {'Status':<8}"
     print(header)
-    print("  " + "-" * (W - 2))
+    print("  " + "-" * 98)
 
     sorted_blocks = sorted(blocks.keys())
     for block_name in sorted_blocks:
@@ -172,7 +168,7 @@ def print_block_analysis(forward_result, backward_result, neuron_contributions):
         status = "KEPT" if main_conv_active else "SKIPPED"
         print(f"  {block_name:<24} {delta_val:>8.4f}  {status:<8}")
 
-    print("  " + "-" * (W - 2))
+    print("  " + "-" * 98)
     print(f"  Total: {total} blocks, {skipped} skipped")
 
 
@@ -194,9 +190,9 @@ def print_slice_summary(backward_result, model, neuron_contributions, t_backward
     active_ch = sum(a for _, a in layer_ch.values())
 
     print()
-    print("-" * W)
+    print("-" * 100)
     print("SLICE SUMMARY")
-    print("-" * W)
+    print("-" * 100)
     print(f"  Time:            {t_backward:.2f}s")
     n_pct = f"{100.0 * slice_n / total_n:.1f}%" if total_n > 0 else "0.0%"
     s_pct = f"{100.0 * active_s / total_s:.1f}%" if total_s > 0 else "0.0%"
@@ -208,4 +204,4 @@ def print_slice_summary(backward_result, model, neuron_contributions, t_backward
     print(f"  Blocks total:    {backward_result['total_blocks']}")
     print(f"  Blocks skipped:  {backward_result['skipped_blocks']}")
     print()
-    print("=" * W)
+    print("=" * 100)
