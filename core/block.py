@@ -1,8 +1,5 @@
-# core/block/block_structure.py
-
-
 class BlockStructureAnalyzer:
-    """Analyzes ResNet block structure from graph."""
+    """Analyzes ResNet block structure from graph"""
 
     SHORTCUT_PATTERNS = ["shortcut", "downsample", "skip", "projection"]
     MAIN_PATH_END_PATTERNS = ["bn2", "bn3", "norm2", "norm3"]
@@ -15,7 +12,7 @@ class BlockStructureAnalyzer:
         self.add_to_block = {}
 
     def analyze(self):
-        """Analyze all blocks, return block_info and add_to_block mappings."""
+        """Analyze all blocks, return block_info and add_to_block mappings"""
         add_nodes_info = self._find_add_nodes()
 
         for block_name, block_layers in self.blocks.items():
@@ -28,7 +25,7 @@ class BlockStructureAnalyzer:
         return self.block_info, self.add_to_block
 
     def get_skip_nodes(self, skip_blocks):
-        """Given skip_blocks, return set of main path nodes to skip."""
+        """Given skip_blocks, return set of main path nodes to skip"""
         skip_nodes = set()
         for block_name in skip_blocks:
             if block_name in self.block_info:
@@ -40,17 +37,17 @@ class BlockStructureAnalyzer:
         return skip_nodes
 
     def get_block_for_add(self, add_node_name):
-        """Get block name for a given add node."""
+        """Get block name for a given add node"""
         return self.add_to_block.get(add_node_name)
 
     def get_main_path_end(self, block_name):
-        """Get the main path end node for a block."""
+        """Get the main path end node for a block"""
         if block_name in self.block_info:
             return self.block_info[block_name]["main_path_end"]
         return None
 
     def _find_add_nodes(self):
-        """Find all add nodes and their parent/child connections."""
+        """Find all add nodes and their parent/child connections"""
         child_map = {}  # node -> list of child nodes
         for node in self.graph.get_nodes():
             for p in self.graph.get_parent_nodes(node):
@@ -75,7 +72,7 @@ class BlockStructureAnalyzer:
         return add_nodes
 
     def _analyze_single_block(self, block_name, block_layers, add_nodes_info):
-        """Analyze a single residual block's structure."""
+        """Analyze a single residual block's structure"""
         matching_add = None
         main_path_end = None
         shortcut_input = None
@@ -128,11 +125,11 @@ class BlockStructureAnalyzer:
         }
 
     def _belongs_to_block(self, layer_name, block_name):
-        """Check if layer belongs to block."""
+        """Check if layer belongs to block"""
         return layer_name.startswith(block_name + ".")
 
     def _is_main_path_end(self, layer_name, block_layers):
-        """Check if layer is end of main path (bn2/bn3)."""
+        """Check if layer is end of main path (bn2/bn3)"""
         for pattern in self.MAIN_PATH_END_PATTERNS:
             if pattern in layer_name:
                 return True
@@ -147,5 +144,5 @@ class BlockStructureAnalyzer:
         return False
 
     def _is_shortcut_layer(self, layer_name):
-        """Check if layer is part of shortcut connection."""
+        """Check if layer is part of shortcut connection"""
         return any(p in layer_name.lower() for p in self.SHORTCUT_PATTERNS)

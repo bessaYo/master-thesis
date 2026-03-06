@@ -1,9 +1,7 @@
-# core/tracing/operations.py
-
 import torch
 import torch.nn.functional as F
 
-from core.block.filtering import ThetaSlicer
+from core.filtering import ThetaSlicer
 
 
 class BackwardOperations:
@@ -48,8 +46,7 @@ class BackwardOperations:
         return contrib
 
     def conv2d(self, module, CONTRIB_n, delta_n, delta_i, activation_n):
-        """Backward contribution for convolutional layer.
-        Channel filtering is handled upstream by zeroing inactive channels in CONTRIB_n."""
+        """Backward contribution for convolutional layer"""
         # Get weights, kernel size, stride and padding from current module
         weight = module.weight.detach()  # [out_channels, in_channels, kH, kW]
         kernel_size = module.kernel_size

@@ -11,7 +11,7 @@ venv/
 # Temporary result files
 results/
 
-# Ignore Mnist and CIFAR datasets
+# Ignore model datasets
 data/
 
 # Python packaging

@@ -1,7 +1,3 @@
-# core/slicer.py
-
-import torch.nn as nn
-
 from core.tracing.profiler import Profiler
 from core.tracing.forward import ForwardAnalyzer
 from core.tracing.backward import BackwardAnalyzer
@@ -11,7 +7,7 @@ from core.graph import Graph
 class Slicer:
     """Main entry point: profile() -> forward() -> backward()"""
 
-    def __init__(self, model: nn.Module, input_sample=None, precomputed_profile=None):
+    def __init__(self, model, input_sample=None, precomputed_profile=None):
         self.model = model
         self.input_sample = input_sample
         self.precomputed_profile = precomputed_profile
@@ -51,7 +47,7 @@ class Slicer:
         return self.forward_result
 
     # Phase 3: Backward analysis phase
-    def backward(self, target_index: int = 0, theta: float = 0.3, channel_alpha=None, block_beta=None):
+    def backward(self, target_index=0, theta=0.3, channel_alpha=None, block_beta=None):
         if self.forward_result is None:
             raise RuntimeError("Run forward() first.")
         if self.graph is None:
@@ -78,7 +74,7 @@ class Slicer:
         return self.backward_result
 
     def _build_summary(self, analyzer, target_index, theta, channel_alpha, block_beta):
-        """Build summary dict from backward analyzer results."""
+        """Build summary dict from backward analyzer results"""
         # Use neuron_deltas for total count (includes skipped blocks)
         total_neurons = sum(d.numel() for d in analyzer.neuron_deltas.values())
         slice_neurons = sum((c != 0).sum().item() for c in analyzer.neuron_contributions.values())

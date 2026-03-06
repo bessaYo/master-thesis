@@ -1,5 +1,3 @@
-# core/graph/graph.py
-
 import torch
 import torch.fx as fx
 import operator
@@ -89,7 +87,7 @@ class Graph:
         return self.get_type(node) in self._passthrough_types
 
     def skip_passthrough(self, node):
-        """Follow parent chain until a non passthrough node is found."""
+        """Follow parent chain until a non passthrough node is found"""
         while self.is_passthrough(node):
             parents = self.get_parent_nodes(node)
             if not parents:

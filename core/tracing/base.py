@@ -1,5 +1,3 @@
-# core/tracing/base.py
-
 from models.resnet import BasicBlock as CIFARBlock
 from models.imagenet import BasicBlock, Bottleneck
 

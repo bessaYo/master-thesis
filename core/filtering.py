@@ -1,23 +1,4 @@
-# core/block/filtering.py
-
 import torch
-
-
-def energy_threshold(energies, hyperparameter):
-    """Sort by energy and keep top elements based on hyperparameter -> return boolean tensor of kept elements"""
-    total = energies.sum().item()
-    if total == 0:
-        return None
-
-    sorted_idx = energies.argsort(descending=True) # Sort in descending order
-    cumsum = energies[sorted_idx].cumsum(0) # Cumulative sum of sorted energies
-    threshold = hyperparameter * total
-    cutoff = (cumsum >= threshold).nonzero()[0].item() # Find first element where threshold is met
-
-    # Create boolean mask of kept elements
-    energy_mask = torch.zeros(len(energies), dtype=torch.bool, device=energies.device)
-    energy_mask[sorted_idx[: cutoff + 1]] = True
-    return energy_mask
 
 
 class ThetaSlicer:
@@ -40,7 +21,7 @@ class ThetaSlicer:
                 continue
 
             energies = magnitude[neuron].abs()
-            mask = energy_threshold(energies, self.theta)
+            mask = energy_threshold(energies, 1 - self.theta)
 
             if mask is None:
                 keep[neuron] = False
@@ -50,7 +31,7 @@ class ThetaSlicer:
         return keep
 
     def filter_conv(self, magnitude, layer_activation):
-        """Theta filter for conv2d: filter per output channel across all spatial positions."""
+        """Theta filter for conv2d: filter per output channel across all spatial positions"""
         # Sum absolute magnitude across spatial positions per kernel element
         channel_mag = magnitude.abs().sum(dim=2)  # [out_ch, kernel_size]
         out_channels = channel_mag.shape[0]
@@ -64,7 +45,7 @@ class ThetaSlicer:
             if activation == 0:
                 continue
 
-            mask = energy_threshold(channel_mag[ch], self.theta)
+            mask = energy_threshold(channel_mag[ch], 1 - self.theta)
             if mask is not None:
                 keep[ch] = mask
 
@@ -151,3 +132,20 @@ class BlockSlicer:
 
     def get_skip_blocks(self):
         return self.skip_blocks
+
+
+def energy_threshold(energies, hyperparameter):
+    """Sort by energy and keep top elements based on hyperparameter -> return boolean tensor of kept elements"""
+    total = energies.sum().item()
+    if total == 0:
+        return None
+
+    sorted_idx = energies.argsort(descending=True)  # Sort in descending order
+    cumsum = energies[sorted_idx].cumsum(0)  # Cumulative sum of sorted energies
+    threshold = hyperparameter * total
+    cutoff = (cumsum >= threshold).nonzero()[0].item()  # Find first element where threshold is met
+
+    # Create boolean mask of kept elements
+    energy_mask = torch.zeros(len(energies), dtype=torch.bool, device=energies.device)
+    energy_mask[sorted_idx[: cutoff + 1]] = True
+    return energy_mask

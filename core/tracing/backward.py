@@ -1,10 +1,8 @@
-# core/tracing/backward.py
-
 import time
 import torch
 from core.tracing.operations import BackwardOperations
-from core.block.filtering import ChannelSlicer, BlockSlicer
-from core.block.block_structure import BlockStructureAnalyzer
+from core.filtering import ChannelSlicer, BlockSlicer
+from core.block import BlockStructureAnalyzer
 
 
 class BackwardAnalyzer:
@@ -169,7 +167,7 @@ class BackwardAnalyzer:
         return parents
 
     def _get_add_parents(self, add_node, skip_blocks):
-        """Get parents of an add node, skipping main path end if block is skipped."""
+        """Get parents of an add node, skipping main path end if block is skipped"""
         block = self.block_analyzer.get_block_for_add(add_node.name) if self.block_analyzer else None
         block_skip = True if block and block in skip_blocks else False
         main_path_end = self.block_analyzer.get_main_path_end(block) if block else None

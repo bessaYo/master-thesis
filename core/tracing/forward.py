@@ -1,5 +1,3 @@
-# core/tracing/forward.py
-
 import torch
 import torch.nn as nn
 from utils.tensor import ensure_tensor_batch
