@@ -14,10 +14,6 @@ dependencies = [
     "networkx>=3.5",
     "tqdm>=4.67.0",
     "rich>=14.2.0",
-]
-
-[project.optional-dependencies]
-dev = [
     "pytest>=9.0.0",
 ]
 

@@ -13,6 +13,7 @@ from utils.report import (
     print_neuron_table,
     print_block_analysis,
     print_slice_summary,
+    save_slice_json,
 )
 
 
@@ -40,6 +41,11 @@ def main():
         type=int,
         default=0,
         help="Index of the test image in the dataset",
+    )
+    parser.add_argument(
+        "--save",
+        action="store_true",
+        help="Save results as JSON to evaluation/slices/",
     )
     args = parser.parse_args()
 
@@ -103,6 +109,9 @@ def main():
         print_block_analysis(slicer.forward_result, slicer.backward_result, nc)
 
     print_slice_summary(slicer.backward_result, model, nc, t_backward)
+
+    if args.save:
+        save_slice_json(args, dataset_name, class_names, slicer.backward_result, model)
 
 
 if __name__ == "__main__":

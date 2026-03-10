@@ -1,3 +1,5 @@
+import json
+import os
 import torch.nn as nn
 
 
@@ -219,3 +221,61 @@ def print_slice_summary(backward_result, model, neuron_contributions, t_backward
     print(f"  Blocks skipped:  {backward_result['skipped_blocks']}")
     print()
     print("=" * 100)
+
+
+def save_slice_json(args, dataset_name, class_names, backward_result, model):
+    """Save slice results as JSON"""
+    nc = backward_result["neuron_contributions"]
+    modules = dict(model.named_modules())
+
+    total_n, slice_n = 0, 0
+    for name, tensor in nc.items():
+        if name in modules and isinstance(modules[name], (nn.Conv2d, nn.Linear)):
+            total_n += tensor.numel()
+            slice_n += (tensor != 0).sum().item()
+
+    syn = compute_layer_synapses(model, nc)
+    total_s = sum(t for t, _ in syn.values())
+    active_s = sum(a for _, a in syn.values())
+
+    # Build filename
+    fname = f"{args.model}_t{args.target}_img{args.image_index}"
+    if args.channel_alpha is not None:
+        fname += f"_ch{args.channel_alpha}"
+    if args.block_beta is not None:
+        fname += f"_bl{args.block_beta}"
+
+    out_dir = "evaluation/slices"
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, f"{fname}.json")
+
+    n_pct = round(100.0 * slice_n / total_n, 1) if total_n > 0 else 0.0
+    s_pct = round(100.0 * active_s / total_s, 1) if total_s > 0 else 0.0
+
+    data = {
+        "config": {
+            "model": args.model,
+            "dataset": dataset_name,
+            "target_class": args.target,
+            "target_class_name": class_names[args.target] if class_names else str(args.target),
+            "image_index": args.image_index,
+            "theta": args.theta,
+            "channel_alpha": args.channel_alpha,
+            "block_beta": args.block_beta,
+        },
+        "results": {
+            "backward_time": round(backward_result["backward_time"], 4),
+            "total_neurons": total_n,
+            "slice_neurons": slice_n,
+            "neurons_pct": n_pct,
+            "total_synapses": total_s,
+            "slice_synapses": active_s,
+            "synapses_pct": s_pct,
+            "total_blocks": backward_result["total_blocks"],
+            "skipped_blocks": backward_result["skipped_blocks"],
+        },
+    }
+
+    with open(out_path, "w") as f:
+        json.dump(data, f, indent=2)
+    print(f"\nSaved to {out_path}")
