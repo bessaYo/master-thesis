@@ -20,6 +20,6 @@ data/
 # Ruff
 .ruff_cache/
 
-
-
-
+# Ignore pretrained profiles that are too large to push
+pretrained/profiles/imagenet_resnet50.pt
+pretrained/profiles/imagenet_resnet101.pt
