@@ -1,6 +1,3 @@
-# tests/test_backward.py
-"""Tests for the backward analysis phase"""
-
 import torch
 import pytest
 from core.slicer import Slicer

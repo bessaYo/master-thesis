@@ -1,12 +1,3 @@
-"""
-Runs a single slice and prints a detailed report
-
-Usage Examples:
-    python main.py --model resnet-cifar --target 0
-    python main.py --model resnet18 --target 0 --channel_alpha 0.8
-    python main.py --model resnet34 --target 0 --channel_alpha 0.8 --block_beta 0.8
-"""
-
 import argparse
 import torch
 

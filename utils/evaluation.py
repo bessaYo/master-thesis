@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Subset
-from typing import List, Dict, Optional
 from collections import defaultdict
 from tqdm import tqdm
 from multiprocessing import Pool
@@ -80,7 +79,7 @@ def compute_slices(
     return slices
 
 
-def aggregate_slices(slices: List[Dict]) -> Dict[str, torch.Tensor]:
+def aggregate_slices(slices):
     """Aggregate multiple slices via union (sum of abs contributions)."""
     contributions = [s["contributions"] for s in slices]
     all_keys = set()
@@ -95,7 +94,7 @@ def aggregate_slices(slices: List[Dict]) -> Dict[str, torch.Tensor]:
     return aggregated
 
 
-def aggregate_synapse_contribs(slices: List[Dict]) -> Dict[str, torch.Tensor]:
+def aggregate_synapse_contribs(slices):
     """Aggregate synapse contributions via union (sum of abs contributions)."""
     all_keys = set()
     for s in slices:
@@ -109,7 +108,7 @@ def aggregate_synapse_contribs(slices: List[Dict]) -> Dict[str, torch.Tensor]:
     return aggregated
 
 
-def compute_slice_size(aggregated: Dict[str, torch.Tensor], model=None) -> float:
+def compute_slice_size(aggregated, model=None):
     """Fraction of active channels in the aggregated slice."""
     total_channels = 0
     active_channels = 0
@@ -131,20 +130,22 @@ def compute_slice_size(aggregated: Dict[str, torch.Tensor], model=None) -> float
                 total_channels += channel_contrib.numel()
                 active_channels += (channel_contrib > 0).sum().item()
 
-    return active_channels / total_channels if total_channels > 0 else 0
+    if total_channels == 0:
+        return 0
+    return active_channels / total_channels
 
 
-def evaluate_per_class(model, dataset, device, num_classes=10, eval_samples: Optional[int] = None):
+def evaluate_per_class(model, dataset, device, num_classes=10, eval_samples=None):
     """Evaluate per-class and overall accuracy"""
     if eval_samples is not None:
         counts = defaultdict(int)
         indices = []
-        for idx in range(len(dataset)):
-            _, label = dataset[idx]
+        for i in range(len(dataset)):
+            _, label = dataset[i]
             if counts[label] < eval_samples:
-                indices.append(idx)
+                indices.append(i)
                 counts[label] += 1
-            if all(counts[c] >= eval_samples for c in range(num_classes)):
+            if len(indices) >= eval_samples * num_classes:
                 break
         dataset = Subset(dataset, indices)
     loader = DataLoader(dataset, batch_size=128, shuffle=False)
@@ -160,6 +161,12 @@ def evaluate_per_class(model, dataset, device, num_classes=10, eval_samples: Opt
                 total[cls] += mask.sum().item()
                 correct[cls] += (preds[mask] == cls).sum().item()
 
-    per_class = {c: correct[c] / total[c] if total[c] > 0 else 0 for c in range(num_classes)}
+    per_class = {}
+    for c in range(num_classes):
+        if total[c] > 0:
+            per_class[c] = correct[c] / total[c]
+        else:
+            per_class[c] = 0
+
     overall = sum(correct) / sum(total) if sum(total) > 0 else 0
     return per_class, overall

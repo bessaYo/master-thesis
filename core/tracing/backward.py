@@ -13,8 +13,12 @@ class BackwardAnalyzer:
         self.target_index = target_index
 
         # Initialize instances for slicing and backward operations
-        self.channel_slicer = ChannelSlicer(alpha=channel_alpha) if channel_alpha is not None else None
-        self.block_slicer = BlockSlicer(alpha=block_beta) if block_beta is not None else None
+        self.channel_slicer = None
+        if channel_alpha is not None:
+            self.channel_slicer = ChannelSlicer(alpha=channel_alpha)
+        self.block_slicer = None
+        if block_beta is not None:
+            self.block_slicer = BlockSlicer(alpha=block_beta)
         self.ops = BackwardOperations(theta=theta)
         self.block_analyzer = None
 
@@ -63,7 +67,6 @@ class BackwardAnalyzer:
         delta_n = self._get_delta(node)
 
         # Calculate contribution for each parent
-        contribs = []
         for parent in self._get_parents(node, skip_blocks, CONTRIB_n):
             parent_key = self.graph.get_key(parent)
             delta_i = self._get_delta(parent)
@@ -72,9 +75,7 @@ class BackwardAnalyzer:
             if parent_key not in self.neuron_contributions:
                 self.neuron_contributions[parent_key] = torch.zeros_like(delta_i)
 
-            # Accumulate contribution
             self.neuron_contributions[parent_key] += contrib
-            contribs.append(contrib)
 
 
     # Apply backward operation based on node type
@@ -160,7 +161,7 @@ class BackwardAnalyzer:
             if parent_type in ("flatten", "method_view", "method_flatten"):
                 parents.extend(self.graph.get_compute_parents(parent))
             elif parent_type == "add":
-                parents.extend(self._process_add_node(parent, skip_blocks, CONTRIB_n))
+                parents.extend(self._get_add_parents(parent, skip_blocks))
             else:
                 parents.append(parent)
 
@@ -168,9 +169,13 @@ class BackwardAnalyzer:
 
     def _get_add_parents(self, add_node, skip_blocks):
         """Get parents of an add node, skipping main path end if block is skipped"""
-        block = self.block_analyzer.get_block_for_add(add_node.name) if self.block_analyzer else None
-        block_skip = True if block and block in skip_blocks else False
-        main_path_end = self.block_analyzer.get_main_path_end(block) if block else None
+        block = None
+        if self.block_analyzer:
+            block = self.block_analyzer.get_block_for_add(add_node.name)
+        block_skip = block and block in skip_blocks
+        main_path_end = None
+        if block:
+            main_path_end = self.block_analyzer.get_main_path_end(block)
 
         parents = []
         for parent in self.graph.get_parent_nodes(add_node):
@@ -180,31 +185,6 @@ class BackwardAnalyzer:
                 continue
             parents.append(parent)
         return parents
-
-    # Special handling for add nodes. Skip parents along main path of a skipped block
-    def _process_add_node(self, add_node, skip_blocks, CONTRIB_n):
-        add_key = self.graph.get_key(add_node)
-        parent_nodes = []
-
-        # Get corresponding block for add node
-        block = self.block_analyzer.get_block_for_add(add_node.name) if self.block_analyzer else None
-        # Check if block is skipped
-        block_skip = True if block and block in skip_blocks else False
-        # Get last node of block main path
-        main_path_end = self.block_analyzer.get_main_path_end(block) if block else None
-
-        for parent in self.graph.get_parent_nodes(add_node):
-            parent = self.graph.skip_passthrough(parent)
-            parent_key = self.graph.get_key(parent)
-
-            if block_skip and parent_key == main_path_end:
-                continue
-            parent_nodes.append(parent)
-
-        if add_key in self.neuron_contributions:
-            self.neuron_contributions[add_key] += CONTRIB_n
-
-        return parent_nodes
 
     # Get delta for a given node
     def _get_delta(self, node):

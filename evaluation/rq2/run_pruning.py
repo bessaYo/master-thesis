@@ -1,5 +1,3 @@
-"""Pruning evaluation for one config. Usage: python -m evaluation.rq2.run_pruning [--alpha 0.9] [--beta 0.8]"""
-
 import argparse
 import json
 import torch
@@ -29,7 +27,9 @@ def build_config_name(alpha, beta):
         parts.append(f"a{alpha}")
     if beta is not None:
         parts.append(f"b{beta}")
-    return "_".join(parts) if parts else "baseline"
+    if not parts:
+        return "baseline"
+    return "_".join(parts)
 
 
 def run(alpha, beta):
@@ -46,8 +46,8 @@ def run(alpha, beta):
     )
     print(f"Baseline overall: {100 * base_overall:.1f}%")
 
-    cfg_name = build_config_name(alpha, beta)
-    print(f"\nConfig: {cfg_name} (alpha={alpha}, beta={beta})")
+    config_name = build_config_name(alpha, beta)
+    print(f"\nConfig: {config_name} (alpha={alpha}, beta={beta})")
     print("=" * 60)
 
     per_class_results = {}
@@ -146,7 +146,7 @@ def run(alpha, beta):
         },
     }
 
-    output_path = output_dir / f"pruning_{MODEL_NAME}_{cfg_name}.json"
+    output_path = output_dir / f"pruning_{MODEL_NAME}_{config_name}.json"
     with open(output_path, "w") as f:
         json.dump(output, f, indent=2)
     print(f"\n  Saved to {output_path}")

@@ -1,5 +1,3 @@
-"""Counterfactual evaluation (necessity + sufficiency) for multiple slice configs"""
-
 import json
 import torch
 from pathlib import Path
@@ -32,12 +30,12 @@ if __name__ == "__main__":
     output_dir = Path("evaluation/results/counterfactual")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    for cfg in CONFIGS:
-        cfg_name = cfg["name"]
-        alpha = cfg["alpha"]
-        beta = cfg["beta"]
+    for config in CONFIGS:
+        config_name = config["name"]
+        alpha = config["alpha"]
+        beta = config["beta"]
         print(f"\n{'='*60}")
-        print(f"Config: {cfg_name} (alpha={alpha}, beta={beta})")
+        print(f"Config: {config_name} (alpha={alpha}, beta={beta})")
 
         all_class_results = {}
 
@@ -80,56 +78,69 @@ if __name__ == "__main__":
             scales = [1.0, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65, 0.60, 0.55, 0.50]
             avg_necessity = {}
             avg_sufficiency = {}
-            for s in scales:
-                nec_probs = [r["necessity"][s]["target_prob"] for r in class_results]
-                suf_probs = [r["sufficiency"][s]["target_prob"] for r in class_results]
-                avg_necessity[str(s)] = round(sum(nec_probs) / len(nec_probs), 4)
-                avg_sufficiency[str(s)] = round(sum(suf_probs) / len(suf_probs), 4)
+            for scale in scales:
+                necessity_probs = [r["necessity"][scale]["target_prob"] for r in class_results]
+                sufficiency_probs = [r["sufficiency"][scale]["target_prob"] for r in class_results]
+                avg_necessity[str(scale)] = round(sum(necessity_probs) / len(necessity_probs), 4)
+                avg_sufficiency[str(scale)] = round(sum(sufficiency_probs) / len(sufficiency_probs), 4)
 
-            orig_probs = [r["original"]["target_prob"] for r in class_results]
-            avg_orig = round(sum(orig_probs) / len(orig_probs), 4)
+            original_probs = [r["original"]["target_prob"] for r in class_results]
+            avg_original = round(sum(original_probs) / len(original_probs), 4)
 
             all_class_results[cls] = {
                 "class_name": class_name,
                 "num_samples": len(class_results),
-                "original": avg_orig,
+                "original": avg_original,
                 "necessity": avg_necessity,
                 "sufficiency": avg_sufficiency,
             }
-            print(f"    orig={avg_orig:.3f}  nec@0.5={avg_necessity['0.5']:.3f}  suf@0.5={avg_sufficiency['0.5']:.3f}")
+            print(f"    orig={avg_original:.3f}  nec@0.5={avg_necessity['0.5']:.3f}  suf@0.5={avg_sufficiency['0.5']:.3f}")
 
         valid_classes = list(all_class_results.keys())
-        n_valid = len(valid_classes)
-        avg_nec_all = {}
-        avg_suf_all = {}
-        for s in scales:
-            sk = str(s)
-            avg_nec_all[sk] = round(sum(all_class_results[c]["necessity"][sk] for c in valid_classes) / n_valid, 4)
-            avg_suf_all[sk] = round(sum(all_class_results[c]["sufficiency"][sk] for c in valid_classes) / n_valid, 4)
-        avg_orig_all = round(sum(all_class_results[c]["original"] for c in valid_classes) / n_valid, 4)
+        num_valid = len(valid_classes)
+        avg_necessity_all = {}
+        avg_sufficiency_all = {}
+        for scale in scales:
+            scale_key = str(scale)
+            nec_sum = 0
+            suf_sum = 0
+            for c in valid_classes:
+                nec_sum += all_class_results[c]["necessity"][scale_key]
+                suf_sum += all_class_results[c]["sufficiency"][scale_key]
+            avg_necessity_all[scale_key] = round(nec_sum / num_valid, 4)
+            avg_sufficiency_all[scale_key] = round(suf_sum / num_valid, 4)
+
+        orig_sum = 0
+        for c in valid_classes:
+            orig_sum += all_class_results[c]["original"]
+        avg_original_all = round(orig_sum / num_valid, 4)
 
         print(f"\n  === Average over all classes ===")
-        print(f"  Original: {avg_orig_all:.3f}")
-        print(f"  Necessity:   ", {sk: f"{v:.3f}" for sk, v in avg_nec_all.items()})
-        print(f"  Sufficiency: ", {sk: f"{v:.3f}" for sk, v in avg_suf_all.items()})
+        print(f"  Original: {avg_original_all:.3f}")
+        print(f"  Necessity:    {avg_necessity_all}")
+        print(f"  Sufficiency:  {avg_sufficiency_all}")
+
+        per_class_output = {}
+        for c in valid_classes:
+            per_class_output[str(c)] = all_class_results[c]
 
         output = {
             "config": {
                 "model": MODEL_NAME,
-                "name": cfg_name,
+                "name": config_name,
                 "channel_alpha": alpha,
                 "block_beta": beta,
                 "theta": THETA,
                 "num_images": NUM_IMAGES,
             },
-            "per_class": {str(c): all_class_results[c] for c in valid_classes},
+            "per_class": per_class_output,
             "average": {
-                "original": avg_orig_all,
-                "necessity": avg_nec_all,
-                "sufficiency": avg_suf_all,
+                "original": avg_original_all,
+                "necessity": avg_necessity_all,
+                "sufficiency": avg_sufficiency_all,
             },
         }
-        output_path = output_dir / f"cf_{MODEL_NAME}_{cfg_name}.json"
+        output_path = output_dir / f"cf_{MODEL_NAME}_{config_name}.json"
         with open(output_path, "w") as f:
             json.dump(output, f, indent=2)
         print(f"\n  Saved to {output_path}")

@@ -89,7 +89,10 @@ class BlockSlicer:
 
         block_energy = {}
         for block_name, delta in block_deltas.items():
-            val = delta.item() if isinstance(delta, torch.Tensor) else delta
+            if isinstance(delta, torch.Tensor):
+                val = delta.item()
+            else:
+                val = delta
             block_energy[block_name] = abs(val)
 
         total_energy = sum(block_energy.values())
@@ -113,7 +116,11 @@ class BlockSlicer:
                 continue
 
             layers = blocks.get(block_name, [])
-            has_conv_shortcut = any("shortcut.0" in layer for layer in layers)
+            has_conv_shortcut = False
+            for layer in layers:
+                if "shortcut.0" in layer:
+                    has_conv_shortcut = True
+                    break
 
             if not has_conv_shortcut:
                 self.skip_blocks.add(block_name)

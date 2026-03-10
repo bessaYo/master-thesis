@@ -1,5 +1,4 @@
 from torchvision import datasets, transforms
-from collections import defaultdict
 
 
 CIFAR10_CLASSES = [
@@ -46,11 +45,15 @@ def load_imagenet_val():
 
 def get_samples_for_classes(dataset, classes, per_class):
     """Get samples for specified classes"""
-    samples = defaultdict(list)
-    for idx in range(len(dataset)):
-        img, label = dataset[idx]
+    samples = {c: [] for c in classes}
+    collected = 0
+    for i, (img, label) in enumerate(dataset):
         if label in classes and len(samples[label]) < per_class:
-            samples[label].append((img, label, idx))
-        if all(len(samples[c]) >= per_class for c in classes):
+            samples[label].append((img, label, i))
+            collected += 1
+        if collected >= len(classes) * per_class:
             break
-    return [s for c in classes for s in samples[c]]
+    result = []
+    for c in classes:
+        result.extend(samples[c])
+    return result

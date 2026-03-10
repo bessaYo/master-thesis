@@ -1,8 +1,5 @@
-# models/imagenet.py
-"""Wrappers for torchvision ResNets.
-Torchvision reuses the same ReLU module for multiple activations in each block.
-For slicing we need separate ReLU instances to trace each activation.
-"""
+# Torchvision reuses the same ReLU module for multiple activations in each block.
+# For slicing we need separate ReLU instances to trace each activation.
 
 import torch.nn as nn
 import torchvision.models as tv_models

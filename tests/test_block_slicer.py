@@ -1,8 +1,5 @@
-# tests/test_block_slicer.py
-"""Tests for channel and block slicing"""
-
 import torch
-from core.block.block_slicer import ChannelSlicer, BlockSlicer
+from core.filtering import ChannelSlicer, BlockSlicer
 
 
 def test_channel_slicer_keeps_top_channels():
@@ -11,7 +8,8 @@ def test_channel_slicer_keeps_top_channels():
     # Energies: [10, 1, 1, 1, 1] -> total=14, 80%=11.2
     # Sorted: 10, 11, 12 -> cutoff at index 2, so 3 channels
     deltas = torch.tensor([10.0, 1.0, 1.0, 1.0, 1.0])
-    mask = slicer.get_active_mask(deltas)
+    slicer.compute_active_channels({"layer": deltas})
+    mask = slicer.get_channel_mask("layer")
 
     assert mask[0] == True
     assert mask.sum().item() == 3
@@ -21,7 +19,8 @@ def test_channel_slicer_alpha1_keeps_all():
     """Alpha=1.0 should keep all channels with nonzero energy"""
     slicer = ChannelSlicer(alpha=1.0)
     deltas = torch.tensor([5.0, 3.0, 2.0])
-    mask = slicer.get_active_mask(deltas)
+    slicer.compute_active_channels({"layer": deltas})
+    mask = slicer.get_channel_mask("layer")
 
     assert mask.all()
 

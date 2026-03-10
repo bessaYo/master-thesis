@@ -38,7 +38,9 @@ class Slicer:
         if self.profiler_result is None:
             raise RuntimeError("Run profile() first.")
 
-        sample = input_sample if input_sample is not None else self.input_sample
+        sample = input_sample
+        if sample is None:
+            sample = self.input_sample
         if sample is None:
             raise RuntimeError("No input sample provided.")
 
@@ -76,8 +78,12 @@ class Slicer:
     def _build_summary(self, analyzer, target_index, theta, channel_alpha, block_beta):
         """Build summary dict from backward analyzer results"""
         # Use neuron_deltas for total count (includes skipped blocks)
-        total_neurons = sum(d.numel() for d in analyzer.neuron_deltas.values())
-        slice_neurons = sum((c != 0).sum().item() for c in analyzer.neuron_contributions.values())
+        total_neurons = 0
+        for d in analyzer.neuron_deltas.values():
+            total_neurons += d.numel()
+        slice_neurons = 0
+        for c in analyzer.neuron_contributions.values():
+            slice_neurons += (c != 0).sum().item()
 
         skip_blocks = []
         if analyzer.block_slicer and analyzer.blocks:

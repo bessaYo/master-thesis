@@ -1,6 +1,3 @@
-# tests/test_forward.py
-"""Tests for the forward analysis phase"""
-
 import torch
 import pytest
 from core.slicer import Slicer

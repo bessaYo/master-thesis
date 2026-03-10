@@ -45,8 +45,12 @@ def prune_model(model, neuron_contributions, device, synapse_contributions=None)
 
             active_weights += int((module.weight.data != 0).sum().item())
 
-    total_params = sum(p.numel() for p in model.parameters())
-    active_params = sum((p != 0).sum().item() for p in pruned.parameters())
+    total_params = 0
+    for p in model.parameters():
+        total_params += p.numel()
+    active_params = 0
+    for p in pruned.parameters():
+        active_params += (p != 0).sum().item()
 
     stats = {
         "total_channels": total_channels,
@@ -57,6 +61,6 @@ def prune_model(model, neuron_contributions, device, synapse_contributions=None)
         "weight_ratio": active_weights / total_weights if total_weights > 0 else 0,
         "total_params": total_params,
         "active_params": int(active_params),
-        "model_size": active_params / total_params if total_params > 0 else 0,
+        "model_size": int(active_params) / total_params if total_params > 0 else 0,
     }
     return pruned, stats

@@ -1,5 +1,3 @@
-"""Print RQ1 table values from precomputed slice JSONs"""
-
 import json
 from pathlib import Path
 
@@ -33,11 +31,11 @@ for model in MODELS:
             print(f"  {label:<16} {'--':>7} {'--':>7} {'--':>7} {'--':>9}")
             continue
 
-        n = len(results)
-        t = sum(r["backward_time"] for r in results) / n
-        neurons = sum(r["neurons_pct"] for r in results) / n
-        synapses = sum(r["synapses_pct"] for r in results) / n
-        sk = round(sum(r["skipped_blocks"] for r in results) / n)
-        tb = results[0]["total_blocks"]
+        count = len(results)
+        avg_time = sum(r["backward_time"] for r in results) / count
+        neurons = sum(r["neurons_pct"] for r in results) / count
+        synapses = sum(r["synapses_pct"] for r in results) / count
+        skipped = round(sum(r["skipped_blocks"] for r in results) / count)
+        total_blocks = results[0]["total_blocks"]
 
-        print(f"  {label:<16} {t:>6.2f}s {neurons:>6.1f} {synapses:>6.1f} {sk}/{tb:>7}")
+        print(f"  {label:<16} {avg_time:>6.2f}s {neurons:>6.1f} {synapses:>6.1f} {skipped}/{total_blocks:>7}")

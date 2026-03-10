@@ -1,6 +1,3 @@
-# tests/test_profiling.py
-"""Tests for the profiling phase"""
-
 import torch
 import pytest
 from core.slicer import Slicer

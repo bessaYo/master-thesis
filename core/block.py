@@ -61,7 +61,9 @@ class BlockStructureAnalyzer:
                     actual = self.graph.skip_passthrough(p)
                     parents.append(self.graph.get_key(actual))
 
-                children = [self.graph.get_key(c) for c in child_map.get(node, [])]
+                children = []
+                for c in child_map.get(node, []):
+                    children.append(self.graph.get_key(c))
 
                 add_nodes[node.name] = {
                     "parents": parents,
@@ -145,4 +147,7 @@ class BlockStructureAnalyzer:
 
     def _is_shortcut_layer(self, layer_name):
         """Check if layer is part of shortcut connection"""
-        return any(p in layer_name.lower() for p in self.SHORTCUT_PATTERNS)
+        for p in self.SHORTCUT_PATTERNS:
+            if p in layer_name.lower():
+                return True
+        return False

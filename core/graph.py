@@ -79,7 +79,9 @@ class Graph:
             if isinstance(arg, fx.Node):
                 parents.append(arg)
             elif isinstance(arg, (list, tuple)):
-                parents.extend(x for x in arg if isinstance(x, fx.Node))
+                for x in arg:
+                    if isinstance(x, fx.Node):
+                        parents.append(x)
         return parents
 
     def is_passthrough(self, node):

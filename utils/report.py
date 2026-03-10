@@ -3,7 +3,7 @@ import torch.nn as nn
 
 def compute_layer_synapses(model, neuron_contributions):
     """Compute per layer synapse counts"""
-    modules = {name: mod for name, mod in model.named_modules()}
+    modules = dict(model.named_modules())
     layer_synapses = {}
 
     for name, tensor in neuron_contributions.items():
@@ -29,7 +29,7 @@ def compute_layer_synapses(model, neuron_contributions):
 
 def compute_layer_channels(model, neuron_contributions):
     """Compute active/total channel counts for Conv2d layers"""
-    modules = {name: mod for name, mod in model.named_modules()}
+    modules = dict(model.named_modules())
     layer_channels = {}
 
     for name, tensor in neuron_contributions.items():
@@ -57,7 +57,9 @@ def print_header(
     channel_alpha,
     block_beta,
 ):
-    total_params = sum(p.numel() for p in model.parameters())
+    total_params = 0
+    for p in model.parameters():
+        total_params += p.numel()
     print("=" * 100)
     print("SLICING REPORT")
     print("=" * 100)
@@ -70,8 +72,14 @@ def print_header(
         print(f"  Target class: {target_idx}")
         print(f"  Input image:  test set #{dataset_idx} (true label: {image_label})")
     print(f"  Theta:        {theta}")
-    ch_str = f"ON (alpha={channel_alpha})" if channel_alpha is not None else "OFF"
-    bl_str = f"ON (beta={block_beta})" if block_beta is not None else "OFF"
+    if channel_alpha is not None:
+        ch_str = f"ON (alpha={channel_alpha})"
+    else:
+        ch_str = "OFF"
+    if block_beta is not None:
+        bl_str = f"ON (beta={block_beta})"
+    else:
+        bl_str = "OFF"
     print(f"  Channel mode: {ch_str}")
     print(f"  Block mode:   {bl_str}")
 
@@ -82,7 +90,7 @@ def print_neuron_table(neuron_contributions, model):
     print("LAYER-BY-LAYER CONTRIBUTIONS")
     print("-" * 100)
 
-    modules = {name: mod for name, mod in model.named_modules()}
+    modules = dict(model.named_modules())
     compute_layers = {}
     for name, tensor in neuron_contributions.items():
         if name in modules and isinstance(modules[name], (nn.Conv2d, nn.Linear)):
@@ -173,7 +181,7 @@ def print_block_analysis(forward_result, backward_result, neuron_contributions):
 
 
 def print_slice_summary(backward_result, model, neuron_contributions, t_backward):
-    modules = {name: mod for name, mod in model.named_modules()}
+    modules = dict(model.named_modules())
     total_n = 0
     slice_n = 0
     for name, tensor in neuron_contributions.items():
@@ -182,12 +190,18 @@ def print_slice_summary(backward_result, model, neuron_contributions, t_backward
             slice_n += (tensor != 0).sum().item()
 
     layer_syn = compute_layer_synapses(model, neuron_contributions)
-    total_s = sum(t for t, _ in layer_syn.values())
-    active_s = sum(a for _, a in layer_syn.values())
+    total_s = 0
+    active_s = 0
+    for t, a in layer_syn.values():
+        total_s += t
+        active_s += a
 
     layer_ch = compute_layer_channels(model, neuron_contributions)
-    total_ch = sum(t for t, _ in layer_ch.values())
-    active_ch = sum(a for _, a in layer_ch.values())
+    total_ch = 0
+    active_ch = 0
+    for t, a in layer_ch.values():
+        total_ch += t
+        active_ch += a
 
     print()
     print("-" * 100)
