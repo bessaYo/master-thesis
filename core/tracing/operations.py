@@ -32,6 +32,8 @@ class BackwardOperations:
         # Step 2: Compute local contribution for each input neuron, mask with keep_neurons
         active_outputs = (CONTRIB_n != 0).unsqueeze(1)
         local_contrib = CONTRIB_n.unsqueeze(1) * delta_n.unsqueeze(1) * magnitude
+
+        # keep only sign as NNSclicr does
         local_contrib = torch.sign(local_contrib) * keep_neurons.float() * active_outputs.float()
 
         # Synapse contributions: [out_features, in_features] — sign per weight
@@ -104,7 +106,7 @@ class BackwardOperations:
         mask = (CONTRIB_n != 0).float()
         contrib = contrib * mask  # Zero out contributions where CONTRIB_n is zero
 
-        # Reshape contribution to input shape, apply scatter
+        # Scatter contributions back to the positions of the max values in the input
         out = torch.zeros_like(flat_delta_i)
         out.scatter_(2, flat_max_indices, contrib.flatten(2))
         return out.view_as(delta_i)
@@ -115,12 +117,14 @@ class BackwardOperations:
 
     def relu(self, activation, CONTRIB_n, delta_n, delta_i):
         """Backward contribution for ReLU activation layers"""
+        # Only neurons that were active in the forward pass can contribute
         positive_activation = activation > 0
         mask = positive_activation.float()
         return self._passthrough(CONTRIB_n, delta_n, delta_i * mask)
 
     def batchnorm2d(self, CONTRIB_n, delta_n, delta_i):
         """Backward contribution for batch normalization layers"""
+        # BN is treated as passthrough. Values are scaled but it doesn't change which neurons matter
         return self._passthrough(CONTRIB_n, delta_n, delta_i)
 
     def add(self, CONTRIB_n, delta_n, delta_i):

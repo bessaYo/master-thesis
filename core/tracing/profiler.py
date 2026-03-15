@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from tqdm import tqdm
 
 from core.tracing.base import BaseAnalyzer
 
@@ -24,7 +25,7 @@ class Profiler(BaseAnalyzer):
     # Register forward hook for each layer to collect activation information
     def _hook_fn(self, layer_name):
         def hook(module, input, output):
-            # Sum over batch dimension to get total activation for this layer
+            # Accumulate activation sums across batches (we divide by count later for the mean)
             batch_size = output.size(0)
             batch_sum = output.sum(dim=0)
 
@@ -93,8 +94,10 @@ class Profiler(BaseAnalyzer):
 
         self._compute_input_mean(samples, batch_size=batch_size)
 
+        # Run all samples through the model in batches, hooks accumulate activations
+        num_batches = (len(samples) + batch_size - 1) // batch_size
         with torch.no_grad():
-            for i in range(0, len(samples), batch_size):
+            for i in tqdm(range(0, len(samples), batch_size), total=num_batches, desc="Profiling"):
                 batch = samples[i : i + batch_size]
                 self.model(batch)
 

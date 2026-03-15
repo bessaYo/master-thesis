@@ -40,7 +40,13 @@ def load_cifar10(train=False):
 
 def load_imagenet_val():
     """Load ImageNet ILSVRC2012 validation set"""
-    return datasets.ImageFolder(root="data/imagenet/val", transform=IMAGENET_TRANSFORM)
+    import os
+
+    if os.path.isdir("data/imagenet/val"):
+        root = "data/imagenet/val"
+    else:
+        root = "data/imagenet"
+    return datasets.ImageFolder(root=root, transform=IMAGENET_TRANSFORM)
 
 
 def get_samples_for_classes(dataset, classes, per_class):

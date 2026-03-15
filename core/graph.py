@@ -12,6 +12,7 @@ class Graph:
         self.graph = self.traced.graph
         self.modules = dict(self.traced.named_modules())
 
+        # These operations dont do computation ->  reshape or index tensors
         self._passthrough_types = {
             "method_view",
             "method_flatten",
@@ -98,7 +99,7 @@ class Graph:
         return node
 
     def get_compute_parents(self, node):
-        """Get parent nodes for a given node"""
+        """Like get_parent_nodes but skips over passthrough ops (view, flatten, etc.)"""
         parents = []
         for arg in node.args:
             if isinstance(arg, fx.Node):

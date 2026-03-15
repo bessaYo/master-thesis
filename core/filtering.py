@@ -87,6 +87,7 @@ class BlockSlicer:
     def identify_skip_blocks(self, block_deltas, blocks):
         self.skip_blocks = set()
 
+        # Compute absolute energy per block from forward deltas
         block_energy = {}
         for block_name, delta in block_deltas.items():
             if isinstance(delta, torch.Tensor):
@@ -100,6 +101,7 @@ class BlockSlicer:
             print("[BlockSlicer] Warning: total block energy is zero.")
             return set()
 
+        # Sort blocks by energy and keep until cumulative energy >= alpha
         sorted_blocks = sorted(block_energy.items(), key=lambda x: x[1], reverse=True)
 
         kept_blocks = set()
@@ -110,6 +112,8 @@ class BlockSlicer:
             if cum_energy / total_energy >= self.alpha:
                 break
 
+        # Blocks not kept are candidates for skipping, but blocks with conv shortcuts
+        # must be protected (skipping them would change the tensor dimensions)
         protected_blocks = set()
         for block_name in block_energy.keys():
             if block_name in kept_blocks:

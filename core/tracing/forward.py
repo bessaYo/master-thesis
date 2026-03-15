@@ -86,11 +86,14 @@ class ForwardAnalyzer(BaseAnalyzer):
 
         sample = ensure_tensor_batch(sample)
 
+        # Single forward pass to execute activation hooks
         with torch.no_grad():
             _ = self.model(sample)
 
         self._compute_input_delta(sample)
 
+        # Compute deltas at each granularity
+        # neuron -> channel -> layer -> block
         for layer_name in self.activations:
             self._compute_neuron_deltas(layer_name)
 

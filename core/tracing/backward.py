@@ -53,6 +53,7 @@ class BackwardAnalyzer:
         with torch.no_grad():
             self._init_contributions()
 
+            # Go through graph in reverse order to propagate contributions
             for node in reversed(list(self.graph.get_nodes())):
                 if self._skip_node(node):
                     continue
@@ -72,9 +73,11 @@ class BackwardAnalyzer:
             delta_i = self._get_delta(parent)
             contrib = self._compute_contribution(node, CONTRIB_n, delta_n, delta_i)
 
+            # Initiliaze zero contribution tensor if first time we reach it
             if parent_key not in self.neuron_contributions:
                 self.neuron_contributions[parent_key] = torch.zeros_like(delta_i)
 
+        # Accumulate contributions -> can have multiple children
             self.neuron_contributions[parent_key] += contrib
 
 
@@ -87,13 +90,13 @@ class BackwardAnalyzer:
             module = self.graph.get_module(node)
             activation_n = self.activations.get(node_key)
             result = self.ops.linear(module, CONTRIB_n, delta_n, delta_i, activation_n)
-            # Store per-synapse (per-weight) contributions
+            # Store synapse weight contributions
             if hasattr(self.ops, '_last_synapse_contrib'):
                 self.synapse_contributions[node_key] = self.ops._last_synapse_contrib
             return result
 
         if node_type == "conv2d":
-            # Channel slicing: zero out inactive channels before conv2d
+            # For channel slicing -> zero out inactive channels before conv2d
             if self.channel_slicer:
                 mask = self.channel_slicer.get_channel_mask(node_key)
                 if mask is not None:
@@ -101,7 +104,7 @@ class BackwardAnalyzer:
             module = self.graph.get_module(node)
             activation_n = self.activations.get(node_key)
             result = self.ops.conv2d(module, CONTRIB_n, delta_n, delta_i, activation_n)
-            # Store per-synapse (per-weight) contributions
+            # Store synapse weight contributions
             if hasattr(self.ops, '_last_synapse_contrib'):
                 self.synapse_contributions[node_key] = self.ops._last_synapse_contrib
             return result
@@ -140,6 +143,7 @@ class BackwardAnalyzer:
         # Skip if node is in main path of a skipped block
         if node_key in self.skip_main_path_nodes:
             return True
+        # Return if zero contribution
         if not self.neuron_contributions[node_key].any():
             return True
 
@@ -177,6 +181,8 @@ class BackwardAnalyzer:
         if block:
             main_path_end = self.block_analyzer.get_main_path_end(block)
 
+        # We keep shortcut parent only for skipped blocks
+        # contributions flows through shortcut
         parents = []
         for parent in self.graph.get_parent_nodes(add_node):
             parent = self.graph.skip_passthrough(parent)
@@ -227,7 +233,9 @@ class BackwardAnalyzer:
         last_node = self.graph.last_compute_node()
         last_key = self.graph.get_key(last_node)
 
-        # Set target neuron contribution to 1.0
+        # Target neuron starts with 1.0 contribution, rest are zero
+        # dim=2 for linear (batch, classes)
+        # dim=4 for conv (batch, ch, h, w)
         if self.neuron_contributions[last_key].dim() == 2:
             self.neuron_contributions[last_key][0, self.target_index] = 1.0
         elif self.neuron_contributions[last_key].dim() == 4:

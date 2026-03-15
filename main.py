@@ -103,15 +103,16 @@ def main():
         args.channel_alpha,
         args.block_beta,
     )
-    print_neuron_table(nc, model)
+    neuron_deltas = slicer.forward_result["neuron_deltas"]
+    print_neuron_table(nc, model, neuron_deltas=neuron_deltas)
 
     if slicer.forward_result.get("blocks"):
         print_block_analysis(slicer.forward_result, slicer.backward_result, nc)
 
-    print_slice_summary(slicer.backward_result, model, nc, t_backward)
+    print_slice_summary(slicer.backward_result, model, nc, t_backward, neuron_deltas=neuron_deltas)
 
     if args.save:
-        save_slice_json(args, dataset_name, class_names, slicer.backward_result, model)
+        save_slice_json(args, dataset_name, class_names, slicer.backward_result, model, neuron_deltas=neuron_deltas)
 
 
 if __name__ == "__main__":

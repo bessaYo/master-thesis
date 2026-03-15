@@ -1,153 +1,122 @@
-class BlockStructureAnalyzer:
-    """Analyzes ResNet block structure from graph"""
+SHORTCUT_PATTERNS = ["shortcut", "downsample", "skip", "projection"]
+MAIN_PATH_END_PATTERNS = ["bn2", "bn3", "norm2", "norm3"]
 
-    SHORTCUT_PATTERNS = ["shortcut", "downsample", "skip", "projection"]
-    MAIN_PATH_END_PATTERNS = ["bn2", "bn3", "norm2", "norm3"]
+
+class BlockStructureAnalyzer:
+    """Figures out the internal structure of ResNet blocks from the fx graph.
+    Needed to know which nodes belong to the main path vs shortcut."""
 
     def __init__(self, graph, blocks):
         self.graph = graph
         self.blocks = blocks
 
         self.block_info = {}
-        self.add_to_block = {}
+        self.add_to_block = {}  # add_node_name -> block_name
 
     def analyze(self):
-        """Analyze all blocks, return block_info and add_to_block mappings"""
-        add_nodes_info = self._find_add_nodes()
-
-        for block_name, block_layers in self.blocks.items():
-            info = self._analyze_single_block(block_name, block_layers, add_nodes_info)
-            if info:
-                self.block_info[block_name] = info
-                if info["add_node"]:
-                    self.add_to_block[info["add_node"]] = block_name
-
-        return self.block_info, self.add_to_block
-
-    def get_skip_nodes(self, skip_blocks):
-        """Given skip_blocks, return set of main path nodes to skip"""
-        skip_nodes = set()
-        for block_name in skip_blocks:
-            if block_name in self.block_info:
-                info = self.block_info[block_name]
-                skip_nodes.update(info["main_path_nodes"])
-                if info["post_add_node"]:
-                    skip_nodes.discard(info["post_add_node"])
-
-        return skip_nodes
-
-    def get_block_for_add(self, add_node_name):
-        """Get block name for a given add node"""
-        return self.add_to_block.get(add_node_name)
-
-    def get_main_path_end(self, block_name):
-        """Get the main path end node for a block"""
-        if block_name in self.block_info:
-            return self.block_info[block_name]["main_path_end"]
-        return None
-
-    def _find_add_nodes(self):
-        """Find all add nodes and their parent/child connections"""
-        child_map = {}  # node -> list of child nodes
+        """Walk through all blocks and find their add node, main path, shortcut, etc."""
+        # First build a child map so we can find what comes after each add node
+        child_map = {}
         for node in self.graph.get_nodes():
             for p in self.graph.get_parent_nodes(node):
                 child_map.setdefault(p, []).append(node)
 
+        # Collect all add nodes with their parents and children
         add_nodes = {}
         for node in self.graph.get_nodes():
-            if self.graph.get_type(node) == "add":
-                parents = []
-                for p in self.graph.get_parent_nodes(node):
-                    actual = self.graph.skip_passthrough(p)
-                    parents.append(self.graph.get_key(actual))
+            if self.graph.get_type(node) != "add":
+                continue
+            parents = [self.graph.get_key(self.graph.skip_passthrough(p))
+                       for p in self.graph.get_parent_nodes(node)]
+            children = [self.graph.get_key(c) for c in child_map.get(node, [])]
+            add_nodes[node.name] = {"parents": parents, "children": children}
 
-                children = []
-                for c in child_map.get(node, []):
-                    children.append(self.graph.get_key(c))
+        # Match each block to its add node
+        for block_name, block_layers in self.blocks.items():
+            info = self._match_block(block_name, block_layers, add_nodes)
+            if info:
+                self.block_info[block_name] = info
+                self.add_to_block[info["add_node"]] = block_name
 
-                add_nodes[node.name] = {
-                    "parents": parents,
-                    "children": children,
-                    "node": node,
-                }
+        return self.block_info, self.add_to_block
 
-        return add_nodes
+    def get_skip_nodes(self, skip_blocks):
+        """Return set of main path nodes that should be skipped during backward."""
+        skip_nodes = set()
+        for block_name in skip_blocks:
+            if block_name not in self.block_info:
+                continue
+            info = self.block_info[block_name]
+            skip_nodes.update(info["main_path_nodes"])
+            # Keep post-add relu — still needed for shortcut path
+            if info["post_add_node"]:
+                skip_nodes.discard(info["post_add_node"])
+        return skip_nodes
 
-    def _analyze_single_block(self, block_name, block_layers, add_nodes_info):
-        """Analyze a single residual block's structure"""
-        matching_add = None
-        main_path_end = None
-        shortcut_input = None
+    def get_block_for_add(self, add_node_name):
+        return self.add_to_block.get(add_node_name)
 
-        for add_name, add_info in add_nodes_info.items():
+    def get_main_path_end(self, block_name):
+        if block_name in self.block_info:
+            return self.block_info[block_name]["main_path_end"]
+        return None
+
+    def _match_block(self, block_name, block_layers, add_nodes):
+        """Find which add node belongs to this block and extract its structure."""
+        for add_name, add_info in add_nodes.items():
             parents = add_info["parents"]
 
             block_parent = None
             shortcut_parent = None
-
             for parent in parents:
-                if self._belongs_to_block(parent, block_name):
-                    # Check if it's a shortcut layer
-                    if self._is_shortcut_layer(parent):
+                if parent.startswith(block_name + "."):
+                    if _is_shortcut(parent):
                         shortcut_parent = parent
                     else:
                         block_parent = parent
                 else:
-                    # External parent (identity shortcut case)
+                    # External parent = identity shortcut (no conv downsample)
                     shortcut_parent = parent
 
-            if block_parent and shortcut_parent:
-                if self._is_main_path_end(block_parent, block_layers):
-                    matching_add = add_name
-                    main_path_end = block_parent
-                    shortcut_input = shortcut_parent
-                    break
+            if not (block_parent and shortcut_parent):
+                continue
+            if not _is_main_path_end(block_parent, block_layers):
+                continue
 
-        if not matching_add:
-            return None
+            # Found the matching add node for this block
+            post_add = add_info["children"][0] if add_info["children"] else None
 
-        # Find post-add node (usually relu)
-        post_add_node = None
-        add_info = add_nodes_info[matching_add]
-        if add_info["children"]:
-            post_add_node = add_info["children"][0]
+            # Main path = everything except shortcut layers and post-add relu
+            main_path_nodes = set()
+            for layer in block_layers:
+                if not _is_shortcut(layer) and layer != post_add:
+                    main_path_nodes.add(layer)
 
-        # Identify main path nodes
-        main_path_nodes = set()
-        for layer in block_layers:
-            if not self._is_shortcut_layer(layer) and layer != post_add_node:
-                main_path_nodes.add(layer)
+            return {
+                "add_node": add_name,
+                "main_path_end": block_parent,
+                "post_add_node": post_add,
+                "main_path_nodes": main_path_nodes,
+            }
 
-        return {
-            "add_node": matching_add,
-            "main_path_end": main_path_end,
-            "shortcut_input": shortcut_input,
-            "post_add_node": post_add_node,
-            "main_path_nodes": main_path_nodes,
-        }
+        return None
 
-    def _belongs_to_block(self, layer_name, block_name):
-        """Check if layer belongs to block"""
-        return layer_name.startswith(block_name + ".")
 
-    def _is_main_path_end(self, layer_name, block_layers):
-        """Check if layer is end of main path (bn2/bn3)"""
-        for pattern in self.MAIN_PATH_END_PATTERNS:
-            if pattern in layer_name:
+def _is_shortcut(layer_name):
+    return any(p in layer_name.lower() for p in SHORTCUT_PATTERNS)
+
+
+def _is_main_path_end(layer_name, block_layers):
+    """Check if this is the last layer on the main path (typically bn2 or bn3)."""
+    if any(p in layer_name for p in MAIN_PATH_END_PATTERNS):
+        return True
+
+    # Fallback: if it's a batchnorm in the second half of the block, probably the last one
+    if "bn" in layer_name.lower() or "norm" in layer_name.lower():
+        try:
+            idx = block_layers.index(layer_name)
+            if idx >= len(block_layers) * 0.5:
                 return True
-
-        if "bn" in layer_name.lower() or "norm" in layer_name.lower():
-            try:
-                idx = block_layers.index(layer_name)
-                if idx >= len(block_layers) * 0.5:
-                    return True
-            except ValueError:
-                pass
-        return False
-
-    def _is_shortcut_layer(self, layer_name):
-        """Check if layer is part of shortcut connection"""
-        for p in self.SHORTCUT_PATTERNS:
-            if p in layer_name.lower():
-                return True
-        return False
+        except ValueError:
+            pass
+    return False
