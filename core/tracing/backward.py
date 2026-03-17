@@ -73,11 +73,11 @@ class BackwardAnalyzer:
             delta_i = self._get_delta(parent)
             contrib = self._compute_contribution(node, CONTRIB_n, delta_n, delta_i)
 
-            # Initiliaze zero contribution tensor if first time we reach it
+            # Initialize zero contribution tensor if first time we reach it
             if parent_key not in self.neuron_contributions:
                 self.neuron_contributions[parent_key] = torch.zeros_like(delta_i)
 
-        # Accumulate contributions -> can have multiple children
+            # Accumulate contributions -> can have multiple children
             self.neuron_contributions[parent_key] += contrib
 
 
@@ -89,11 +89,9 @@ class BackwardAnalyzer:
         if node_type == "linear":
             module = self.graph.get_module(node)
             activation_n = self.activations.get(node_key)
-            result = self.ops.linear(module, CONTRIB_n, delta_n, delta_i, activation_n)
-            # Store synapse weight contributions
-            if hasattr(self.ops, '_last_synapse_contrib'):
-                self.synapse_contributions[node_key] = self.ops._last_synapse_contrib
-            return result
+            neuron_contrib, synapse_contrib = self.ops.linear(module, CONTRIB_n, delta_n, delta_i, activation_n)
+            self.synapse_contributions[node_key] = synapse_contrib
+            return neuron_contrib
 
         if node_type == "conv2d":
             # For channel slicing -> zero out inactive channels before conv2d
@@ -103,11 +101,9 @@ class BackwardAnalyzer:
                     self.neuron_contributions[node_key][:, ~mask] = 0
             module = self.graph.get_module(node)
             activation_n = self.activations.get(node_key)
-            result = self.ops.conv2d(module, CONTRIB_n, delta_n, delta_i, activation_n)
-            # Store synapse weight contributions
-            if hasattr(self.ops, '_last_synapse_contrib'):
-                self.synapse_contributions[node_key] = self.ops._last_synapse_contrib
-            return result
+            neuron_contrib, synapse_contrib = self.ops.conv2d(module, CONTRIB_n, delta_n, delta_i, activation_n)
+            self.synapse_contributions[node_key] = synapse_contrib
+            return neuron_contrib
 
         if node_type == "batchnorm2d":
             return self.ops.batchnorm2d(CONTRIB_n, delta_n, delta_i)

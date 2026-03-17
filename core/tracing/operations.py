@@ -33,19 +33,19 @@ class BackwardOperations:
         active_outputs = (CONTRIB_n != 0).unsqueeze(1)
         local_contrib = CONTRIB_n.unsqueeze(1) * delta_n.unsqueeze(1) * magnitude
 
-        # keep only sign as NNSclicr does
+        # keep only sign as NNSlicer does
         local_contrib = torch.sign(local_contrib) * keep_neurons.float() * active_outputs.float()
 
         # Synapse contributions: [out_features, in_features] — sign per weight
-        self._last_synapse_contrib = local_contrib.clone()
+        synapse_contrib = local_contrib.clone()
 
         # Step 3: For every input neuron, accumulate local contributions
         contrib = local_contrib.sum(dim=0)  # sum over output neurons → one value per input neuron
 
         # Reshape to match original delta_i shape
-        contrib = contrib.reshape(original_shape)
+        neuron_contrib = contrib.reshape(original_shape)
 
-        return contrib
+        return neuron_contrib, synapse_contrib
 
     def conv2d(self, module, CONTRIB_n, delta_n, delta_i, activation_n):
         """Backward contribution for convolutional layer"""
@@ -77,13 +77,12 @@ class BackwardOperations:
 
         # Synapse contributions: sum over spatial positions → [out_ch, in_ch*kH*kW]
         # Then reshape to weight shape [out_ch, in_ch, kH, kW]
-        synapse_contrib = local.sum(dim=2)  # sum over spatial output positions
-        self._last_synapse_contrib = synapse_contrib.reshape(weight.shape)
+        synapse_contrib = local.sum(dim=2).reshape(weight.shape)
 
         # Step 5: Accumulate over output channels
-        contrib = local.sum(dim=0).unsqueeze(0)  # sum over output channels, add batch dim
-        contrib = F.fold(contrib, delta_i.shape[2:], kernel_size, stride=stride, padding=padding)
-        return contrib
+        neuron_contrib = local.sum(dim=0).unsqueeze(0)  # sum over output channels, add batch dim
+        neuron_contrib = F.fold(neuron_contrib, delta_i.shape[2:], kernel_size, stride=stride, padding=padding)
+        return neuron_contrib, synapse_contrib
 
     def maxpool(self, module, CONTRIB_n, delta_n, delta_i, pool_input):
         """Backward contribution for max pooling"""
