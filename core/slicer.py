@@ -49,7 +49,7 @@ class Slicer:
         return self.forward_result
 
     # Phase 3: Backward analysis phase
-    def backward(self, target_index=0, theta=0.3, channel_alpha=None, block_beta=None):
+    def backward(self, target_index=0, theta=0.2, channel_alpha=None, block_beta=None, vectorized=True):
         if self.forward_result is None:
             raise RuntimeError("Run forward() first.")
         if self.graph is None:
@@ -62,6 +62,7 @@ class Slicer:
             theta=theta,
             channel_alpha=channel_alpha,
             block_beta=block_beta,
+            vectorized=vectorized,
         )
 
         backward_analyzer.trace()

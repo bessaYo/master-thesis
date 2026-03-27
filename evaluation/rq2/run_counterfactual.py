@@ -9,7 +9,7 @@ from utils.data import load_cifar10, get_samples_for_classes, CIFAR10_CLASSES
 
 MODEL_NAME = "resnet_cifar"
 NUM_IMAGES = 10
-THETA = 0.3
+THETA = 0.2
 
 CONFIGS = [
     {"name": "base", "alpha": None, "beta": None},

@@ -16,7 +16,7 @@ from evaluation.rq2.pruning import prune_model
 
 MODEL_NAME = "resnet_cifar"
 NUM_IMAGES = 10
-THETA = 0.3
+THETA = 0.2
 EVAL_SAMPLES = 100
 NUM_WORKERS = 4
 

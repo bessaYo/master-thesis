@@ -1,6 +1,6 @@
 import time
 import torch
-from core.tracing.operations import BackwardOperations
+from core.tracing.operations import get_backward_operations
 from core.filtering import ChannelSlicer, BlockSlicer
 from core.block import BlockStructureAnalyzer
 
@@ -8,7 +8,7 @@ from core.block import BlockStructureAnalyzer
 class BackwardAnalyzer:
     """Propagates contributions backward through the graph to compute slices"""
 
-    def __init__(self, graph, forward_result, target_index, theta=0.3, channel_alpha=None, block_beta=None):
+    def __init__(self, graph, forward_result, target_index, theta=0.2, channel_alpha=None, block_beta=None, vectorized=True):
         self.graph = graph
         self.target_index = target_index
 
@@ -19,7 +19,7 @@ class BackwardAnalyzer:
         self.block_slicer = None
         if block_beta is not None:
             self.block_slicer = BlockSlicer(alpha=block_beta)
-        self.ops = BackwardOperations(theta=theta)
+        self.ops = get_backward_operations(theta=theta, vectorized=vectorized)
         self.block_analyzer = None
 
         # Get activations and deltas from forward pass

@@ -19,13 +19,13 @@ def test_contributions_theta0_target0():
     assert torch.equal(contrib["input"], torch.tensor([[-1.0, 1.0]]))
 
 
-def test_contributions_theta03_target0():
-    """Neuron contributions for theta=0.3, target=0"""
+def test_contributions_theta02_target0():
+    """Neuron contributions for theta=0.2, target=0"""
     model = PaperNN()
     slicer = Slicer(model, input_sample=torch.tensor([[1.0, 2.0]]))
     slicer.profile(profiling_samples=torch.zeros(1, 2))
     slicer.forward()
-    slicer.backward(target_index=0, theta=0.3)
+    slicer.backward(target_index=0, theta=0.2)
     contrib = slicer.backward_result["neuron_contributions"]
 
     assert torch.equal(contrib["fc3"], torch.tensor([[1.0, 0.0]]))

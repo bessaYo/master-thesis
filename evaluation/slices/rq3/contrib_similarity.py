@@ -135,7 +135,7 @@ if __name__ == "__main__":
             class_images[c],
             model_name="resnet_cifar",
             profile_path=PROFILE_PATH,
-            theta=0.3,
+            theta=0.2,
             desc=CIFAR10_CLASSES[c],
         )
 

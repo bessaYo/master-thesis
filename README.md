@@ -84,7 +84,7 @@ Several arguments exist and can be added into the slicing command to control mod
 | ----------------- | -------- | ------- | --------------------------------------------------------------------------- |
 | `--model`         | yes      | —       | Model name: `resnet_cifar`, `resnet18`, `resnet34`, `resnet50`, `resnet101` |
 | `--target`        | yes      | —       | Target class index for slicing                                              |
-| `--theta`         | no       | `0.3`   | Contribution threshold for neuron filtering                                 |
+| `--theta`         | no       | `0.2`   | Contribution threshold for neuron filtering                                 |
 | `--channel_alpha` | no       | `None`  | Channel slicing parameter                                                   |
 | `--block_beta`    | no       | `None`  | Block slicing parameter                                                     |
 | `--image_index`   | no       | `0`     | Index of the test image in the dataset                                      |

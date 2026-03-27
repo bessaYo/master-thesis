@@ -51,7 +51,7 @@ def compute_slices(
     samples,
     model_name,
     profile_path,
-    theta=0.3,
+    theta=0.2,
     channel_alpha=None,
     block_beta=None,
     num_workers=4,

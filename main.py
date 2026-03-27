@@ -33,7 +33,7 @@ def main():
         help="Model name",
     )
     parser.add_argument("--target", type=int, required=True, help="Target class index")
-    parser.add_argument("--theta", type=float, default=0.3, help="Contribution threshold")
+    parser.add_argument("--theta", type=float, default=0.2, help="Contribution threshold")
     parser.add_argument("--channel_alpha", type=float, default=None, help="Channel energy fraction (enables channel filtering)")
     parser.add_argument("--block_beta", type=float, default=None, help="Block energy fraction (enables block filtering)")
     parser.add_argument(
@@ -46,6 +46,11 @@ def main():
         "--save",
         action="store_true",
         help="Save results as JSON to evaluation/slices/",
+    )
+    parser.add_argument(
+        "--loop",
+        action="store_true",
+        help="Use loop-based (non-vectorized) backward operations",
     )
     args = parser.parse_args()
 
@@ -85,6 +90,7 @@ def main():
         theta=args.theta,
         channel_alpha=args.channel_alpha,
         block_beta=args.block_beta,
+        vectorized=not args.loop,
     )
 
     nc = slicer.backward_result["neuron_contributions"]
