@@ -12,9 +12,9 @@ NUM_IMAGES = 10
 THETA = 0.2
 
 CONFIGS = [
-    {"name": "base", "alpha": None, "beta": None},
-    {"name": "conservative", "alpha": 0.85, "beta": 0.8},
-    {"name": "aggressive", "alpha": 0.5, "beta": 0.5},
+    {"name": "baseline", "alpha": None, "beta": None},
+    {"name": "ch0.85_bl0.8", "alpha": 0.85, "beta": 0.8},
+    {"name": "ch0.5_bl0.5", "alpha": 0.5, "beta": 0.5},
 ]
 
 if __name__ == "__main__":

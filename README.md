@@ -107,6 +107,43 @@ python main.py --model resnet34 --target 3 --image_index 10
 python main.py --model resnet_cifar --target 0 --loop
 ```
 
+## Evaluation
+
+To reproduce the evaluation results from the thesis, use the scripts in `evaluation/`.
+
+### RQ1: Slicing Performance
+
+Slicing results are produced by running `main.py` with different configurations (see examples above). Results are saved to `evaluation/slices/`.
+
+### RQ2: Slice Quality
+
+**Pruning:**
+
+```bash
+python evaluation/rq2/run_pruning.py                           # baseline
+python evaluation/rq2/run_pruning.py --alpha 0.85              # channel pruning
+python evaluation/rq2/run_pruning.py --beta 0.8                # block pruning
+python evaluation/rq2/run_pruning.py --alpha 0.85 --beta 0.8   # combined
+```
+
+Results are saved to `evaluation/results/pruning/`.
+
+**Counterfactual:**
+
+```bash
+python -m evaluation.rq2.run_counterfactual
+```
+
+Results are saved to `evaluation/results/counterfactual/`.
+
+### RQ3: Contribution Similarity
+
+```bash
+python -m evaluation.rq3.contrib_similarity
+```
+
+Results are saved to `evaluation/results/contrib_similarity/`.
+
 ## Testing
 
 Run all tests with:
