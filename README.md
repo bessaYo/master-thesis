@@ -37,10 +37,11 @@ CIFAR-10 is downloaded automatically by torchvision on first run. No manual setu
 
 ### ImageNet (ILSVRC2012)
 
-ImageNet is only needed if you want to slice the larger models (`resnet18`, `resnet34`, `resnet50`, `resnet101`). The validation set ( around 6 GB) can be obtained from [image-net.org](https://image-net.org/) (registration required).
+ImageNet is only needed for the larger models (`resnet18`, `resnet34`, `resnet101`).
 
-1. Download the validation set and place the images in `data/imagenet/`
-2. Organize the images into class subdirectories:
+1. Download the validation set (~6 GB) from [image-net.org](https://image-net.org/) (registration required)
+2. Place the downloaded folder into `data/imagenet/`
+3. Run the following script to organize the images into class subdirectories:
 
    ```bash
    python utils/prepare_imagenet.py data/imagenet
@@ -50,23 +51,22 @@ ImageNet is only needed if you want to slice the larger models (`resnet18`, `res
 
 The slicing pipeline requires activation profiles that contain mean activations for every neuron, channel and block in the network. These are computed once over the full training/validation set and reused for all slicing runs.
 
-For `resnet_cifar`, `resnet18` and `resnet34` the profiles are already included in the repository. The larger models (`resnet50`, `resnet101`) have profiles that are too large in size. They can be generated manually but can take high amount of time
-depending on your system:
+For `resnet_cifar`, `resnet18` and `resnet34` the profiles are already included in the repository. The `resnet101` profile is too large to include and can be generated manually. The resulting profile will be saved to `pretrained/profiles/`. Note that this may take a long time depending on your system:
 
 ```bash
-python pretrained/profiling.py --model resnet50
 python pretrained/profiling.py --model resnet101
 ```
 
-The following shows an overiew of pretrained weights (checkpoints) and profiles in this repository:
+The following shows an overview of pretrained weights (checkpoints) and profiles in this repository:
 
-| Model | Checkpoint | Profile | Dataset |
-| --- | --- | --- | --- |
-| `resnet_cifar` | included | included | CIFAR-10 |
-| `resnet18` | torchvision | included | ImageNet |
-| `resnet34` | torchvision | included | ImageNet |
-| `resnet50` | torchvision | not included | ImageNet |
-| `resnet101` | torchvision | not included | ImageNet |
+| Model | Checkpoint | Profile |
+| --- | --- | --- |
+| `resnet_cifar` | included | included |
+| `resnet18` | torchvision | included |
+| `resnet34` | torchvision | included |
+| `resnet101` | torchvision | not included |
+
+Profiles that are not included can be generated using the profiling script above.
 
 ## Slicing
 
@@ -82,11 +82,12 @@ Several arguments exist and can be added into the slicing command to control mod
 
 | Flag              | Required | Default | Description                                                                 |
 | ----------------- | -------- | ------- | --------------------------------------------------------------------------- |
-| `--model`         | yes      | —       | Model name: `resnet_cifar`, `resnet18`, `resnet34`, `resnet50`, `resnet101` |
+| `--model`         | yes      | —       | Model name: `resnet_cifar`, `resnet18`, `resnet34`, `resnet101`             |
 | `--target`        | yes      | —       | Target class index for slicing                                              |
 | `--theta`         | no       | `0.2`   | Contribution threshold for neuron filtering                                 |
 | `--channel_alpha` | no       | `None`  | Channel slicing parameter                                                   |
 | `--block_beta`    | no       | `None`  | Block slicing parameter                                                     |
+| `--loop`          | no       | `false` | Use loop-based (non-vectorized) backward operations                         |
 | `--image_index`   | no       | `0`     | Index of the test image in the dataset                                      |
 | `--save`          | no       | `false` | Save results as JSON to `evaluation/slices/`                                |
 
@@ -101,6 +102,9 @@ python main.py --model resnet18 --target 5 --channel_alpha 0.8 --block_beta 0.8
 
 # Different image and target class
 python main.py --model resnet34 --target 3 --image_index 10
+
+# Loop-based backward analysis (non-vectorized baseline)
+python main.py --model resnet_cifar --target 0 --loop
 ```
 
 ## Testing
@@ -127,8 +131,11 @@ The slicing pipeline with all three phases (profiling, forward analysis, backwar
 │       ├── profiler.py      # Phase 1: mean activations
 │       ├── forward.py       # Phase 2: activation deltas
 │       ├── backward.py      # Phase 3: contribution propagation
-│       ├── operations.py    # Backward contribution operations for different layers
-│       └── base.py          # Shared analyzer class
+│       └── operations/
+│           ├── __init__.py  # Factory for vectorized/loop operations
+│           ├── ops_vec.py   # Vectorized backward operations (default)
+│           └── ops_loop.py  # Loop-based backward operations (baseline)
+│       ├── base.py          # Shared analyzer class
 ├── models/
 │   ├── resnet.py            # Custom ResNet for CIFAR-10 dataset
 │   ├── imagenet.py          # ResNets (18/34/50/101)

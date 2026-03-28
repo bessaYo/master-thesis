@@ -142,7 +142,14 @@ def print_block_analysis(forward_result, backward_result, neuron_contributions):
             for ln in blocks[block_name]
             if "conv" in ln and "shortcut" not in ln and ln in neuron_contributions
         )
-        print(f"  {block_name:<24} {delta:>8.4f}  {'KEPT' if active else 'SKIPPED':<8}")
+        skipped_by_block_slicer = block_name in backward_result.get("skipped_block_names", set())
+        if skipped_by_block_slicer:
+            status = "SKIPPED"
+        elif active:
+            status = "KEPT"
+        else:
+            status = "INACTIVE"
+        print(f"  {block_name:<24} {delta:>8.4f}  {status:<8}")
 
     print("  " + "-" * 98)
     print(f"  Total: {backward_result['total_blocks']} blocks, "
@@ -226,10 +233,10 @@ def save_slice_json(args, dataset_name, class_names, backward_result, model, neu
             "backward_time": round(backward_result["backward_time"], 4),
             "total_neurons": total_n,
             "slice_neurons": slice_n,
-            "neurons_pct": round(100.0 * slice_n / total_n, 1) if total_n > 0 else 0.0,
+            "neurons_ratio": round(100.0 * slice_n / total_n, 1) if total_n > 0 else 0.0,
             "total_synapses": total_s,
             "slice_synapses": active_s,
-            "synapses_pct": round(100.0 * active_s / total_s, 1) if total_s > 0 else 0.0,
+            "synapses_ratio": round(100.0 * active_s / total_s, 1) if total_s > 0 else 0.0,
             "total_blocks": backward_result["total_blocks"],
             "skipped_blocks": backward_result["skipped_blocks"],
         },

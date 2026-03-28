@@ -1,10 +1,9 @@
-SHORTCUT_PATTERNS = ["shortcut", "downsample", "skip", "projection"]
-MAIN_PATH_END_PATTERNS = ["bn2", "bn3", "norm2", "norm3"]
+SHORTCUT_PATTERNS = ["shortcut", "downsample"]
+MAIN_PATH_END_PATTERNS = ["bn2", "bn3"]
 
 
 class BlockStructureAnalyzer:
-    """Figures out the internal structure of ResNet blocks from the fx graph.
-    Needed to know which nodes belong to the main path vs shortcut."""
+    """Analyzes ResNet block structure from the fx graph to separate main path from shortcut nodes"""
 
     def __init__(self, graph, blocks):
         self.graph = graph
@@ -14,7 +13,7 @@ class BlockStructureAnalyzer:
         self.add_to_block = {}  # add_node_name -> block_name
 
     def analyze(self):
-        """Walk through all blocks and find their add node, main path, shortcut, etc."""
+        """Finds the add node, main path and shortcut for each block"""
         # First build a child map so we can find what comes after each add node
         child_map = {}
         for node in self.graph.get_nodes():
@@ -41,14 +40,14 @@ class BlockStructureAnalyzer:
         return self.block_info, self.add_to_block
 
     def get_skip_nodes(self, skip_blocks):
-        """Return set of main path nodes that should be skipped during backward."""
+        """Returns main path nodes that should be skipped during backward"""
         skip_nodes = set()
         for block_name in skip_blocks:
             if block_name not in self.block_info:
                 continue
             info = self.block_info[block_name]
             skip_nodes.update(info["main_path_nodes"])
-            # Keep post-add relu — still needed for shortcut path
+            # Keep relu node after add node
             if info["post_add_node"]:
                 skip_nodes.discard(info["post_add_node"])
         return skip_nodes
@@ -62,7 +61,7 @@ class BlockStructureAnalyzer:
         return None
 
     def _match_block(self, block_name, block_layers, add_nodes):
-        """Find which add node belongs to this block and extract its structure."""
+        """Matches a block to its add node and extracts the structure"""
         for add_name, add_info in add_nodes.items():
             parents = add_info["parents"]
 
@@ -80,7 +79,7 @@ class BlockStructureAnalyzer:
 
             if not (block_parent and shortcut_parent):
                 continue
-            if not _is_main_path_end(block_parent, block_layers):
+            if not _is_main_path_end(block_parent):
                 continue
 
             # Found the matching add node for this block
@@ -106,17 +105,6 @@ def _is_shortcut(layer_name):
     return any(p in layer_name.lower() for p in SHORTCUT_PATTERNS)
 
 
-def _is_main_path_end(layer_name, block_layers):
-    """Check if this is the last layer on the main path (typically bn2 or bn3)."""
-    if any(p in layer_name for p in MAIN_PATH_END_PATTERNS):
-        return True
-
-    # Fallback: if it's a batchnorm in the second half of the block, probably the last one
-    if "bn" in layer_name.lower() or "norm" in layer_name.lower():
-        try:
-            idx = block_layers.index(layer_name)
-            if idx >= len(block_layers) * 0.5:
-                return True
-        except ValueError:
-            pass
-    return False
+def _is_main_path_end(layer_name):
+    """Checks if this is the last layer on the main path (bn2 or bn3)"""
+    return any(p in layer_name for p in MAIN_PATH_END_PATTERNS)

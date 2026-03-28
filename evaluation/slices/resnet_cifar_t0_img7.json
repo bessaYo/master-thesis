@@ -1,0 +1,23 @@
+{
+  "config": {
+    "model": "resnet_cifar",
+    "dataset": "cifar10",
+    "target_class": 0,
+    "target_class_name": "airplane",
+    "image_index": 7,
+    "theta": 0.2,
+    "channel_alpha": null,
+    "block_beta": null
+  },
+  "results": {
+    "backward_time": 639.7747,
+    "total_neurons": 544778,
+    "slice_neurons": 256299,
+    "neurons_ratio": 47.0,
+    "total_synapses": 14205568,
+    "slice_synapses": 5847153,
+    "synapses_ratio": 41.2,
+    "total_blocks": 27,
+    "skipped_blocks": 0
+  }
+}

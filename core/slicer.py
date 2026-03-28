@@ -98,6 +98,7 @@ class Slicer:
             "slice_neurons": slice_neurons,
             "total_blocks": len(analyzer.blocks) if analyzer.blocks else 0,
             "skipped_blocks": len(skip_blocks),
+            "skipped_block_names": set(skip_blocks),
             "config": {
                 "target_index": target_index,
                 "theta": theta,
