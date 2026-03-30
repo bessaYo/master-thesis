@@ -29,48 +29,9 @@ The project setup and dependencies are defined in `pyproject.toml`. Run the foll
 pip install -e .
 ```
 
-## Datasets
-
-### CIFAR-10
-
-CIFAR-10 is downloaded automatically by torchvision on first run. No manual setup is needed to slice the resnet cifar model
-
-### ImageNet (ILSVRC2012)
-
-ImageNet is only needed for the larger models (`resnet18`, `resnet34`, `resnet101`).
-
-1. Download the validation set (~6 GB) from [image-net.org](https://image-net.org/) (registration required)
-2. Place the downloaded folder into `data/imagenet/`
-3. Run the following script to organize the images into class subdirectories:
-
-   ```bash
-   python utils/prepare_imagenet.py data/imagenet
-   ```
-
-## Pretrained Weights and Profiles
-
-The slicing pipeline requires activation profiles that contain mean activations for every neuron, channel and block in the network. These are computed once over the full training/validation set and reused for all slicing runs.
-
-For `resnet_cifar` the profile is already included in the repository. All other profiles can be generated manually. The resulting profile will be saved to `pretrained/profiles/`. Note that this may take a long time depending on your system:
-
-```bash
-python pretrained/profiling.py --model resnet18
-```
-
-The following shows an overview of pretrained weights (checkpoints) and profiles in this repository:
-
-| Model | Checkpoint | Profile |
-| --- | --- | --- |
-| `resnet_cifar` | included | included |
-| `resnet18` | torchvision | not included |
-| `resnet34` | torchvision | not included |
-| `resnet101` | torchvision | not included |
-
-Profiles that are not included can be generated using the profiling script above.
-
 ## Slicing
 
-Once the project dependencies are installed, slicing can be run with `main.py`:
+Once the project dependencies are installed, slicing can be run with `main.py`. The custom ResNet trained on CIFAR-10 works out of the box and is also used for the evaluation of RQ2 and RQ3. ImageNet models require additional setup (see below).
 
 ```bash
 python main.py --model resnet_cifar --target 0
@@ -106,6 +67,41 @@ python main.py --model resnet34 --target 3 --image_index 10
 # Loop-based backward analysis (non-vectorized baseline)
 python main.py --model resnet_cifar --target 0 --loop
 ```
+
+## Slice ImageNet ResNet Models
+
+To slice the larger ImageNet models (`resnet18`, `resnet34`, `resnet101`), two additional steps are required: downloading the ImageNet dataset and generating activation profiles.
+
+### ImageNet Dataset
+
+1. Download the validation set (~6 GB) from [image-net.org](https://image-net.org/) (registration required)
+2. Place the downloaded folder into `data/imagenet/`
+3. Run the following script to organize the images into class subdirectories:
+
+   ```bash
+   python utils/prepare_imagenet.py data/imagenet
+   ```
+
+### Activation Profiles
+
+The slicing pipeline requires activation profiles that contain mean activations for every neuron, channel and block in the network. These are computed once over the full training/validation set and reused for all slicing runs.
+
+For `resnet_cifar` the profile is already included in the repository. All other profiles can be generated manually. The resulting profile will be saved to `pretrained/profiles/`. Note that this may take a long time depending on your system:
+
+```bash
+python pretrained/profiling.py --model resnet18
+```
+
+The following shows an overview of pretrained weights (checkpoints) and profiles in this repository:
+
+| Model | Checkpoint | Profile |
+| --- | --- | --- |
+| `resnet_cifar` | included | included |
+| `resnet18` | torchvision | not included |
+| `resnet34` | torchvision | not included |
+| `resnet101` | torchvision | not included |
+
+Profiles that are not included can be generated using the profiling script above.
 
 ## Evaluation
 
