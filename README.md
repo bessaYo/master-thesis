@@ -51,10 +51,10 @@ ImageNet is only needed for the larger models (`resnet18`, `resnet34`, `resnet10
 
 The slicing pipeline requires activation profiles that contain mean activations for every neuron, channel and block in the network. These are computed once over the full training/validation set and reused for all slicing runs.
 
-For `resnet_cifar`, `resnet18` and `resnet34` the profiles are already included in the repository. The `resnet101` profile is too large to include and can be generated manually. The resulting profile will be saved to `pretrained/profiles/`. Note that this may take a long time depending on your system:
+For `resnet_cifar` the profile is already included in the repository. All other profiles can be generated manually. The resulting profile will be saved to `pretrained/profiles/`. Note that this may take a long time depending on your system:
 
 ```bash
-python pretrained/profiling.py --model resnet101
+python pretrained/profiling.py --model resnet18
 ```
 
 The following shows an overview of pretrained weights (checkpoints) and profiles in this repository:
@@ -62,8 +62,8 @@ The following shows an overview of pretrained weights (checkpoints) and profiles
 | Model | Checkpoint | Profile |
 | --- | --- | --- |
 | `resnet_cifar` | included | included |
-| `resnet18` | torchvision | included |
-| `resnet34` | torchvision | included |
+| `resnet18` | torchvision | not included |
+| `resnet34` | torchvision | not included |
 | `resnet101` | torchvision | not included |
 
 Profiles that are not included can be generated using the profiling script above.
