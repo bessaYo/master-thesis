@@ -10,7 +10,7 @@
     "block_beta": 0.8
   },
   "results": {
-    "backward_time": 5.9674,
+    "backward_time": 6.8692,
     "total_neurons": 16232936,
     "slice_neurons": 5813566,
     "neurons_ratio": 35.8,
