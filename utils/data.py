@@ -41,11 +41,16 @@ def load_cifar10(train=False):
 def load_imagenet_val():
     """Load ImageNet ILSVRC2012 validation set"""
     import os
+    import sys
 
     if os.path.isdir("data/imagenet/val"):
         root = "data/imagenet/val"
-    else:
+    elif os.path.isdir("data/imagenet"):
         root = "data/imagenet"
+    else:
+        print("Error: ImageNet dataset not found at data/imagenet/")
+        print("Download the validation set from https://image-net.org/ and place it in data/imagenet/")
+        sys.exit(1)
     return datasets.ImageFolder(root=root, transform=IMAGENET_TRANSFORM)
 
 

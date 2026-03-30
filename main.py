@@ -1,4 +1,6 @@
 import argparse
+import os
+import sys
 import torch
 
 from models import get_model
@@ -71,6 +73,10 @@ def main():
 
     # Load model and profile
     model = get_model(args.model, pretrained=True).to(device).eval()
+    if not os.path.exists(profile_path):
+        print(f"Error: Profile not found at {profile_path}")
+        print(f"Run: python profiling/run_profiling.py --model {args.model}")
+        sys.exit(1)
     profile = torch.load(profile_path, map_location=device, weights_only=False)
 
     # Load sample image

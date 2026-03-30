@@ -18,7 +18,7 @@ def compute_single_slice(
     channel_alpha,
     block_beta,
 ):
-    """Compute slice for a single image."""
+    """Compute slice for a single image"""
     image, label, idx = sample_data
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -57,7 +57,7 @@ def compute_slices(
     num_workers=4,
     desc="Slicing",
 ):
-    """Compute slices for multiple samples in parallel."""
+    """Compute slices for multiple samples in parallel"""
     worker_fn = partial(
         compute_single_slice,
         model_name=model_name,
@@ -80,7 +80,7 @@ def compute_slices(
 
 
 def aggregate_slices(slices):
-    """Aggregate multiple slices via union (sum of abs contributions)."""
+    """Aggregate multiple slices via union (sum of abs contributions)"""
     contributions = [s["contributions"] for s in slices]
     all_keys = set()
     for c in contributions:
